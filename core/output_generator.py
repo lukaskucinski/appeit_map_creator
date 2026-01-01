@@ -118,6 +118,10 @@ def generate_output(
 
     # Save each layer's features
     for layer_name, gdf in layer_results.items():
+        # Skip empty layers - no point saving empty FeatureCollections
+        if len(gdf) == 0:
+            logger.info(f"  - Skipping {layer_name} (0 features)")
+            continue
         logger.info(f"  - Saving {layer_name} features...")
         # Sanitize filename
         safe_name = layer_name.replace(' ', '_').replace('/', '_').lower()

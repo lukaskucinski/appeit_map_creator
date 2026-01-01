@@ -1435,6 +1435,8 @@ outputs/peit_map_20250108_143022/
 
 Timestamped directories prevent overwriting previous runs.
 
+**Note on Empty Layers**: Layers with 0 intersecting features are tracked in `metadata.json` for debugging purposes, but are NOT saved as GeoJSON files. This prevents empty/unopenable download files and reduces storage overhead.
+
 ### Report Files
 
 **PDF Report (`PEIT_Report_YYYYMMDD_HHMMSS.pdf`):**
@@ -1502,6 +1504,13 @@ The generated HTML map includes several interactive features:
 - **Template Variables**: Requires `{{ job_id }}` and `{{ api_url }}` (absolute Modal URL for Vercel Blob-served maps)
 - **File Naming**: Sanitization matches output_generator.py, preserves parentheses in server filenames
 - **Limitations**: Bulk download may timeout on first try (~30-60s browser fetch limit), retry usually succeeds
+
+**Empty Layer Handling**: The download menu automatically excludes layers with 0 features. Empty layers are also excluded from:
+- Volume and local storage (no empty .geojson files created)
+- JavaScript data embedding (reduces HTML file size)
+- GPKG downloads (no empty tables)
+
+Metadata still tracks all queried layers (including empty) for debugging and analytics.
 
 ### Dual Collapsible Panel System
 
