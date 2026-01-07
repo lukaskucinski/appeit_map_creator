@@ -404,11 +404,12 @@
 
             <div class="user-inputs-content">
             {% if has_original_geometry %}
-            <!-- Original Input Geometry (pre-buffer) - hidden by default -->
+            <!-- Original Input Geometry (pre-buffer) - visible by default -->
             <div class="layer-item" data-layer-type="original-input" data-layer-name="{{ input_filename }}">
                 <input type="checkbox"
                        id="original-geometry-toggle"
                        class="layer-checkbox"
+                       checked
                        onchange="toggleOriginalGeometry(this.checked)">
                 <label for="original-geometry-toggle" class="layer-label">
                     {% if original_geometry_type == 'line' %}
