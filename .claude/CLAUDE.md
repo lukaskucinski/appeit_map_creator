@@ -587,7 +587,7 @@ When non-polygon inputs (points, lines, or mixed FeatureCollections) are process
 **Behavior:**
 - **Polygon inputs**: Single entry showing `{input_filename}` with gold/orange polygon symbology (no buffer applied)
 - **Point/Line/Mixed inputs**: Two entries:
-  - `{input_filename}` - Original geometry (dashed lines for lines, star icons for points) - **hidden by default**
+  - `{input_filename}` - Original geometry (dashed lines for lines, star icons for points) - **visible by default**
   - `{input_filename}_buffered` - Buffered polygon with gold fill
 - **Group checkbox**: Toggles all User Inputs layers on/off (like other layer groups)
 - **Collapsible**: Group can be collapsed/expanded by clicking the header

@@ -1572,17 +1572,8 @@ def create_web_map(
 
         console.log('Layer control initialized with', Object.keys(mapLayers).length, 'layers');
 
-        // Hide original input geometry by default (user can toggle it on via checkbox)
-        if (window.originalInputLayer && window.mapObject) {{
-            window.mapObject.removeLayer(window.originalInputLayer);
-            console.log('Hid original input layer (default off)');
-        }}
-        if (window.originalInputMarkers && window.originalInputMarkers.length > 0) {{
-            window.originalInputMarkers.forEach(function(marker) {{
-                window.mapObject.removeLayer(marker);
-            }});
-            console.log('Hid original input markers (default off)');
-        }}
+        // Original input geometry is now visible by default (checkbox is checked)
+        // User can toggle it off via the checkbox in the layer control panel
         // Dispatch event to sync legend visibility
         document.dispatchEvent(new CustomEvent('layerVisibilityChanged'));
 

@@ -66,6 +66,14 @@ logs/
 # But exclude local settings (contains user-specific permissions)
 .claude/settings.local.json
 
+# Claude Code marketplace skills (not project-specific)
+# Install via: /plugin install <skill-name>
+.claude/skills/content-research-writer/
+.claude/skills/domain-name-brainstormer/
+.claude/skills/lead-research-assistant/
+.claude/skills/skill-creator/
+.claude/skills/stripe-integration/
+
 # OS
 .DS_Store
 Thumbs.db
