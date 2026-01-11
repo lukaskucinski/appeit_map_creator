@@ -624,6 +624,9 @@ def process_file_task(
             original_gdf.to_file(original_file, driver="GeoJSON")
 
         for layer_name, gdf in layer_results.items():
+            # Skip empty layers - no point saving empty FeatureCollections
+            if len(gdf) == 0:
+                continue
             safe_name = layer_name.replace(" ", "_").replace("/", "_").lower()
             layer_file = data_path / f"{safe_name}.geojson"
             gdf.to_file(layer_file, driver="GeoJSON")
@@ -1901,12 +1904,14 @@ def cleanup_old_results():
     from pathlib import Path
     from datetime import datetime, timedelta, timezone
     import shutil
+    import json
 
     results_path = Path("/results")
     cutoff = datetime.now() - timedelta(days=7)
     cutoff_utc = datetime.now(timezone.utc) - timedelta(days=7)
     deleted_count = 0
     blob_deleted_count = 0
+    empty_files_deleted = 0
 
     # Clean up Modal Volume
     if results_path.exists():
@@ -1921,7 +1926,33 @@ def cleanup_old_results():
                 except Exception as e:
                     print(f"Error cleaning up {job_dir}: {e}")
 
+    # Clean up empty GeoJSON files from all job folders (one-time migration)
+    if results_path.exists():
+        for job_dir in results_path.iterdir():
+            if job_dir.is_dir():
+                data_dir = job_dir / "data"
+                if data_dir.exists():
+                    for geojson_file in data_dir.glob("*.geojson"):
+                        try:
+                            # Skip input polygon and original geometry files
+                            if geojson_file.name in ["input_polygon.geojson", "original_geometry.geojson"]:
+                                continue
+
+                            # Read and parse GeoJSON
+                            with open(geojson_file, 'r', encoding='utf-8') as f:
+                                geojson_data = json.load(f)
+
+                            # Check if features array is empty
+                            if isinstance(geojson_data, dict) and \
+                               geojson_data.get('type') == 'FeatureCollection' and \
+                               len(geojson_data.get('features', [])) == 0:
+                                geojson_file.unlink()
+                                empty_files_deleted += 1
+                        except Exception as e:
+                            print(f"Error checking {geojson_file}: {e}")
+
     results_volume.commit()
+    print(f"Empty file cleanup: deleted {empty_files_deleted} empty GeoJSON files")
     print(f"Volume cleanup: deleted {deleted_count} expired job folders")
 
     # Clean up Vercel Blob using database-driven queries
@@ -1977,6 +2008,7 @@ def cleanup_old_results():
     return {
         "volume_deleted": deleted_count,
         "blob_deleted": blob_deleted_count,
+        "empty_files_deleted": empty_files_deleted,
         "cutoff_date": cutoff.isoformat()
     }
 

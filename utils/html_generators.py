@@ -156,6 +156,9 @@ def generate_layer_data_mapping(
 
     # Add each intersected layer
     for layer_name, gdf in layer_results.items():
+        # Skip empty layers - no point embedding empty FeatureCollections
+        if len(gdf) == 0:
+            continue
         layer_geojson = json.loads(gdf.to_json())
         layer_geojson_str = json.dumps(layer_geojson, separators=(',', ':'))
         # Escape forward slashes to prevent </script> breaking out of script context
