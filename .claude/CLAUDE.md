@@ -2137,6 +2137,39 @@ The web frontend is a Next.js 16 application providing a user-friendly interface
 - Action buttons: View Map, Download ZIP, PDF, Excel (for completed jobs)
 - Delete button with confirmation dialog
 - Expiration countdown
+- **NEW**: Accepts `mapsCreated` prop (total completed maps count) for potential future features
+
+**`components/dashboard/scroll-actions.tsx`**
+- Floating action buttons for Map History page
+- **Back to Top button**: Appears when scrolled >200px (header out of view)
+  - Smooth scroll behavior to top of page via `window.scrollTo({ top: 0, behavior: 'smooth' })`
+  - Icon: `ArrowUp` from lucide-react with "Back to top" text
+  - Animation: Fade in/out with translateY(16px) using CSS transitions
+- **Floating + New Map button**: Appears when original button scrolled out of viewport
+  - Links to `/?reset=1` to start fresh map creation
+  - Icon: `Plus` from lucide-react with "New Map" text
+  - Animation: Fade in/out with translateY(16px) using CSS transitions
+- **Visibility Logic**:
+  - Monitors `window.scrollY` via passive scroll listener for performance
+  - Queries original button position using `getBoundingClientRect()`
+  - Shows/hides with 300ms CSS transitions (`duration-300`)
+  - Uses `pointer-events-none` when hidden to prevent interaction
+- **Styling**:
+  - Fixed position: `bottom-6 right-6`, z-index: 50 (above content, below modals)
+  - Button size: `lg` (h-12 px-4) for better touch targets
+  - Shadow: `shadow-lg hover:shadow-xl` for depth effect
+  - Theme: Inherits from Button component (auto adapts to light/dark mode)
+  - Stack spacing: `gap-3` for vertical separation between buttons
+
+**Maps Created Counter (`app/dashboard/page.tsx`):**
+- Displays total number of completed maps in page header subtitle
+- **Data Source**: Fetched from `user_stats` table in Supabase (column: `maps_completed`)
+- **Format**: "View your recent maps (last 7 days) · X maps created"
+- **Singular/plural handling**: "1 map created" vs "2 maps created"
+- **Fallback**: Shows 0 if `user_stats` row doesn't exist (`userStats?.maps_completed ?? 0`)
+- **Implementation**: Server component fetches both `jobs` and `user_stats` in parallel
+- **Styling**: Uses `muted-foreground` text color, separated by middle dot (·)
+- **Updates**: Automatically updates via database triggers when jobs complete/delete
 
 **`components/header.tsx`**
 - Site navigation and branding
