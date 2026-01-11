@@ -9,6 +9,7 @@ import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { Header } from "@/components/header"
 import { JobHistoryList, type Job } from "@/components/dashboard/job-history-list"
+import { ScrollActions } from "@/components/dashboard/scroll-actions"
 import { Button } from "@/components/ui/button"
 import { Plus } from "lucide-react"
 
@@ -35,20 +36,29 @@ export default async function DashboardPage() {
     console.error("Error fetching jobs:", error)
   }
 
+  // Fetch user stats for maps created counter
+  const { data: userStats } = await supabase
+    .from("user_stats")
+    .select("maps_completed")
+    .eq("user_id", user.id)
+    .single()
+
+  const mapsCreated = userStats?.maps_completed ?? 0
+
   return (
     <div className="min-h-screen bg-background">
       <Header />
       <main className="container mx-auto px-4 py-8">
         <div className="max-w-4xl mx-auto">
           {/* Header section */}
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
             <div>
               <h1 className="text-3xl font-bold">Map History</h1>
               <p className="text-muted-foreground mt-1">
-                View your recent maps (last 7 days)
+                View your recent maps (last 7 days) · {mapsCreated} {mapsCreated === 1 ? 'map' : 'maps'} created
               </p>
             </div>
-            <Button asChild>
+            <Button asChild data-new-map-button>
               <a href="/?reset=1" className="gap-2">
                 <Plus className="h-4 w-4" />
                 New Map
@@ -57,9 +67,12 @@ export default async function DashboardPage() {
           </div>
 
           {/* Job list */}
-          <JobHistoryList jobs={(jobs as Job[]) || []} userId={user.id} />
+          <JobHistoryList jobs={(jobs as Job[]) || []} userId={user.id} mapsCreated={mapsCreated} />
         </div>
       </main>
+
+      {/* Floating action buttons */}
+      <ScrollActions />
     </div>
   )
 }

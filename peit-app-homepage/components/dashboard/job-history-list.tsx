@@ -67,9 +67,10 @@ export interface Job {
 interface JobHistoryListProps {
   jobs: Job[]
   userId: string
+  mapsCreated: number
 }
 
-export function JobHistoryList({ jobs, userId }: JobHistoryListProps) {
+export function JobHistoryList({ jobs, userId, mapsCreated }: JobHistoryListProps) {
   const apiUrl = process.env.NEXT_PUBLIC_MODAL_API_URL || ""
   const [localJobs, setLocalJobs] = useState<Job[]>(jobs)
   const [deletingId, setDeletingId] = useState<string | null>(null)
