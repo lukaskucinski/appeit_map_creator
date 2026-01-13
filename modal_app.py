@@ -288,7 +288,7 @@ def process_file_task(
     import tempfile
     import shutil
     import time
-    from datetime import datetime, timezone
+    from datetime import datetime, timezone, timedelta
     from pathlib import Path
 
     sys.path.insert(0, "/root/peit")
@@ -321,13 +321,41 @@ def process_file_task(
                 'status': 'processing',
                 'expires_at': (datetime.now() + timedelta(days=7)).isoformat(),
             }
+
+            print(f"[DB DEBUG] Attempting to insert job record:")
+            print(f"[DB DEBUG] - job_id: {job_id}")
+            print(f"[DB DEBUG] - user_id: {user_id}")
+            print(f"[DB DEBUG] - filename: {filename}")
+            print(f"[DB DEBUG] - project_name: {project_name}")
+            print(f"[DB DEBUG] - job_data: {job_data}")
+
             # Insert into jobs table (permanent record)
-            supabase.table('jobs').insert(job_data).execute()
+            print(f"[DB DEBUG] Inserting into 'jobs' table...")
+            jobs_response = supabase.table('jobs').insert(job_data).execute()
+            print(f"[DB DEBUG] ✓ 'jobs' table insert SUCCESS: {jobs_response}")
+
             # Insert into jobs_active table (7-day window)
-            supabase.table('jobs_active').insert(job_data).execute()
+            print(f"[DB DEBUG] Inserting into 'jobs_active' table...")
+            jobs_active_response = supabase.table('jobs_active').insert(job_data).execute()
+            print(f"[DB DEBUG] ✓ 'jobs_active' table insert SUCCESS: {jobs_active_response}")
+
+            print(f"[DB DEBUG] Both database inserts completed successfully!")
+
         except Exception as db_error:
-            # Log but don't fail - processing continues without job tracking
-            print(f"Warning: Failed to insert job record: {db_error}")
+            # Log detailed error information
+            print(f"[DB ERROR] ========================================")
+            print(f"[DB ERROR] FAILED TO INSERT JOB RECORD")
+            print(f"[DB ERROR] ========================================")
+            print(f"[DB ERROR] Error type: {type(db_error).__name__}")
+            print(f"[DB ERROR] Error message: {db_error}")
+            print(f"[DB ERROR] Job data attempted: {job_data}")
+            print(f"[DB ERROR] ========================================")
+            import traceback
+            print(f"[DB ERROR] Full traceback:")
+            traceback.print_exc()
+            print(f"[DB ERROR] ========================================")
+    else:
+        print(f"[DB ERROR] Supabase client is None - cannot insert job record!")
 
     try:
         # Save uploaded file
@@ -759,12 +787,28 @@ def process_file_task(
                     **performance_metrics  # Merge performance metrics into update
                 }
                 # Update both jobs table (permanent record) and jobs_active table
-                supabase.table('jobs').update(update_data).eq('id', job_id).execute()
-                supabase.table('jobs_active').update(update_data).eq('id', job_id).execute()
+                print(f"[DB DEBUG] Updating job completion in 'jobs' table (job_id: {job_id})...")
+                jobs_update_response = supabase.table('jobs').update(update_data).eq('id', job_id).execute()
+                print(f"[DB DEBUG] ✓ 'jobs' table update SUCCESS: {jobs_update_response}")
+
+                print(f"[DB DEBUG] Updating job completion in 'jobs_active' table (job_id: {job_id})...")
+                jobs_active_update_response = supabase.table('jobs_active').update(update_data).eq('id', job_id).execute()
+                print(f"[DB DEBUG] ✓ 'jobs_active' table update SUCCESS: {jobs_active_update_response}")
 
                 logger.info(f"[METRICS] Job records updated with performance metrics")
 
             except Exception as db_error:
+                print(f"[DB ERROR] ========================================")
+                print(f"[DB ERROR] FAILED TO UPDATE JOB COMPLETION")
+                print(f"[DB ERROR] ========================================")
+                print(f"[DB ERROR] Error type: {type(db_error).__name__}")
+                print(f"[DB ERROR] Error message: {db_error}")
+                print(f"[DB ERROR] Job ID: {job_id}")
+                print(f"[DB ERROR] Update data: {update_data}")
+                print(f"[DB ERROR] ========================================")
+                import traceback
+                traceback.print_exc()
+                print(f"[DB ERROR] ========================================")
                 logger.warning(f"Failed to update job record: {db_error}")
 
         return {
