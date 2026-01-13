@@ -1660,6 +1660,7 @@ config/ → utils/ → core/ → peit_map_creator.py
 5. **Client-Side Downloads**: Browser-based conversion for SHP/KMZ may have limitations with very large datasets.
 6. **Buffer Distance Limits**: Very large buffers (>10,000 feet for points, >5,000 feet for lines) may cause long query times or incomplete results.
 7. **Vercel Blob Storage Limit**: Free tier has 1GB storage limit. If maps show "Map Expired" error when storage is not actually expired, check Vercel Blob dashboard and delete old maps to free space.
+8. **Map History shows last 7 days only**: The Map History dashboard displays only non-expired maps from the `jobs_active` table. Full job history is preserved in the `jobs` table for analytics but not shown to users.
 
 ## Lessons Learned & Best Practices
 
@@ -2217,28 +2218,39 @@ User authentication via Supabase with OAuth and email/password options.
 
 **Database Tables:**
 
-**`jobs` table** - Stores job processing records with RLS policies filtering by `user_id`.
+**`jobs` table** - Permanent historical record of all job processing (never auto-deleted). RLS policies filter by `user_id`.
 
 | Column | Type | Description |
 |--------|------|-------------|
 | `input_area_sq_miles` | REAL | Square mileage of input geometry (after buffering) |
 | `execution_time_seconds` | REAL (generated) | Auto-computed from `completed_at - created_at` |
 
+**`jobs_active` table** - 7-day sliding window of jobs with valid storage (auto-cleanup). Used for Map History dashboard display.
+
+Identical schema to `jobs` table. Key differences:
+- Auto-deleted when `expires_at < NOW()` (daily cleanup at 3 AM UTC)
+- User deletion removes from `jobs_active` only (preserves `jobs` record for analytics)
+- RLS policy: Users can only view their own active jobs
+- Map History dashboard queries this table, not `jobs`
+
 **`user_stats` table** - Aggregated map creation statistics per user, auto-updated via triggers.
 
 | Column | Type | Description |
 |--------|------|-------------|
 | `user_id` | UUID (PK) | References auth.users(id), cascades on delete |
-| `maps_created` | INTEGER | Total maps started by user |
-| `maps_completed` | INTEGER | Maps that finished successfully |
-| `maps_failed` | INTEGER | Maps that failed during processing |
+| `maps_created` | INTEGER | Total maps started by user (all-time) |
+| `maps_completed` | INTEGER | Maps that finished successfully (all-time) |
+| `maps_completed_active` | INTEGER | Non-expired completed maps (7-day window) |
+| `maps_failed` | INTEGER | Maps that failed during processing (all-time) |
 | `total_features_processed` | BIGINT | Sum of features across completed maps |
 | `first_map_at` | TIMESTAMPTZ | User's first map creation timestamp |
 | `last_map_at` | TIMESTAMPTZ | User's most recent map creation timestamp |
 | `updated_at` | TIMESTAMPTZ | Last stats update timestamp |
 
 - Trigger `trigger_update_user_stats` fires on INSERT/UPDATE/DELETE of `jobs` table
-- Stats updated when: job created, job claimed, job completed, job failed, job deleted
+- Trigger `trigger_update_user_stats_active` fires on INSERT/UPDATE/DELETE of `jobs_active` table
+- `maps_completed_active` used for "X active maps" counter in Map History header
+- Stats updated when: job created, job claimed, job completed, job failed, job deleted/expired
 - RLS policy ensures users can only view their own stats
 
 **Profile Display:**
@@ -2593,16 +2605,18 @@ Serverless backend running on Modal.com for cloud-based geospatial processing.
 - Used by frontend after anonymous user signs up to save their maps to history
 
 **`DELETE /api/jobs/{job_id}`**
-- Deletes a job and all associated storage (Supabase record, Modal Volume files, Vercel Blob files)
+- Deletes job from `jobs_active` table and storage (preserves `jobs` record for analytics)
 - Body: `{ user_id: string }`
-- Requires job to belong to the requesting user (ownership verified before deletion)
-- Returns: `{ success: true, deleted: { database: bool, volume: bool, blobs: [...] } }`
-- Error codes: 400 (invalid format), 403 (not authorized), 404 (not found), 500 (server error)
+- Requires job to belong to the requesting user (ownership verified via `jobs_active` table)
+- Deletes: Modal Volume files, Vercel Blob files (map, PDF, XLSX), `jobs_active` record
+- Preserves: `jobs` table record for permanent analytics history
+- Returns: `{ success: true, message: string, deleted: { jobs_active: bool, jobs: false, volume: bool, blobs: [...] } }`
+- Error codes: 400 (invalid format), 403 (not authorized), 404 (not found or expired), 500 (server error)
 
 **`DELETE /api/account`**
-- Deletes a user account and all associated data
+- Deletes a user account and all associated data (both `jobs` and `jobs_active` tables)
 - Body: `{ user_id: string }`
-- Order of operations: Fetch job data → Delete blobs → Delete volumes → Delete DB records → Delete account
+- Order of operations: Fetch job data → Delete blobs → Delete volumes → Delete from `jobs_active` → Delete from `jobs` → Delete account
 - Returns: `{ success: true, message: string, deleted: { jobs_count, blobs_deleted, volumes_deleted, database_deleted, account_deleted } }`
 - Batch deletes all blobs at once for efficiency (e.g., 20 jobs = 60 DELETE operations)
 - Frontend clears sessionStorage and localStorage before redirect to prevent stuck state
