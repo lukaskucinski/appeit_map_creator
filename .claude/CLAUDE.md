@@ -2252,6 +2252,20 @@ Identical schema to `jobs` table. Key differences:
 - `maps_completed_active` used for "X active maps" counter in Map History header
 - Stats updated when: job created, job claimed, job completed, job failed, job deleted/expired
 - RLS policy ensures users can only view their own stats
+- **Important**: Trigger function includes NULL user_id checks to skip anonymous jobs (prevents trigger failures)
+
+**Critical Bug Fixes (January 2026):**
+
+1. **Missing timedelta import** (PR #100):
+   - Fixed: Added `timedelta` to datetime import in modal_app.py line 291
+   - Bug: Job records were not being inserted into database due to `NameError: name 'timedelta' is not defined`
+   - Impact: Map History appeared empty for all new jobs
+   - Resolution: Added comprehensive debug logging for database operations
+
+2. **Trigger NULL handling**:
+   - Fixed: Added NULL user_id checks at beginning of trigger function
+   - Bug: Trigger failures on anonymous job operations
+   - Resolution: Trigger now skips processing for anonymous jobs (user_id IS NULL)
 
 **Profile Display:**
 Avatar and display name come directly from OAuth provider (`user.user_metadata`). No custom profile editing - users see their Google/GitHub profile automatically.
