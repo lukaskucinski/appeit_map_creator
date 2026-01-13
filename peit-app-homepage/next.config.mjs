@@ -1,3 +1,9 @@
+import { fileURLToPath } from 'url'
+import { dirname } from 'path'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   typescript: {
@@ -9,6 +15,7 @@ const nextConfig = {
   // Turbopack resolver aliases for browser compatibility
   // sql.js (used by @ngageoint/geopackage) tries to require Node.js 'fs' module
   turbopack: {
+    root: __dirname, // Set root to peit-app-homepage directory to prevent lockfile warning
     resolveAlias: {
       fs: { browser: './lib/empty-module.js' },
       path: { browser: './lib/empty-module.js' },

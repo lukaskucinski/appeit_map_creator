@@ -288,7 +288,7 @@ def process_file_task(
     import tempfile
     import shutil
     import time
-    from datetime import datetime, timezone
+    from datetime import datetime, timezone, timedelta
     from pathlib import Path
 
     sys.path.insert(0, "/root/peit")
@@ -312,17 +312,50 @@ def process_file_task(
     # Insert job record (before processing starts)
     if supabase:
         try:
-            supabase.table('jobs').insert({
+            job_data = {
                 'id': job_id,
                 'user_id': user_id if user_id else None,
                 'filename': filename,
                 'project_name': project_name if project_name else None,
                 'project_id': project_id if project_id else None,
                 'status': 'processing',
-            }).execute()
+                'expires_at': (datetime.now() + timedelta(days=7)).isoformat(),
+            }
+
+            print(f"[DB DEBUG] Attempting to insert job record:")
+            print(f"[DB DEBUG] - job_id: {job_id}")
+            print(f"[DB DEBUG] - user_id: {user_id}")
+            print(f"[DB DEBUG] - filename: {filename}")
+            print(f"[DB DEBUG] - project_name: {project_name}")
+            print(f"[DB DEBUG] - job_data: {job_data}")
+
+            # Insert into jobs table (permanent record)
+            print(f"[DB DEBUG] Inserting into 'jobs' table...")
+            jobs_response = supabase.table('jobs').insert(job_data).execute()
+            print(f"[DB DEBUG] ✓ 'jobs' table insert SUCCESS: {jobs_response}")
+
+            # Insert into jobs_active table (7-day window)
+            print(f"[DB DEBUG] Inserting into 'jobs_active' table...")
+            jobs_active_response = supabase.table('jobs_active').insert(job_data).execute()
+            print(f"[DB DEBUG] ✓ 'jobs_active' table insert SUCCESS: {jobs_active_response}")
+
+            print(f"[DB DEBUG] Both database inserts completed successfully!")
+
         except Exception as db_error:
-            # Log but don't fail - processing continues without job tracking
-            print(f"Warning: Failed to insert job record: {db_error}")
+            # Log detailed error information
+            print(f"[DB ERROR] ========================================")
+            print(f"[DB ERROR] FAILED TO INSERT JOB RECORD")
+            print(f"[DB ERROR] ========================================")
+            print(f"[DB ERROR] Error type: {type(db_error).__name__}")
+            print(f"[DB ERROR] Error message: {db_error}")
+            print(f"[DB ERROR] Job data attempted: {job_data}")
+            print(f"[DB ERROR] ========================================")
+            import traceback
+            print(f"[DB ERROR] Full traceback:")
+            traceback.print_exc()
+            print(f"[DB ERROR] ========================================")
+    else:
+        print(f"[DB ERROR] Supabase client is None - cannot insert job record!")
 
     try:
         # Save uploaded file
@@ -739,7 +772,7 @@ def process_file_task(
                     logger.info(f"[METRICS] Bellwether data incomplete - skipping metrics (dict has {len(bellwether_counts)} entries)")
 
                 # Update job record with completion status and performance metrics
-                supabase.table('jobs').update({
+                update_data = {
                     'status': 'complete',
                     'completed_at': datetime.now().isoformat(),
                     'total_features': summary["total_features"],
@@ -752,11 +785,30 @@ def process_file_task(
                     'zip_download_path': f'/api/download/{job_id}',
                     'blob_uploaded_at': datetime.now(timezone.utc).isoformat(),
                     **performance_metrics  # Merge performance metrics into update
-                }).eq('id', job_id).execute()
+                }
+                # Update both jobs table (permanent record) and jobs_active table
+                print(f"[DB DEBUG] Updating job completion in 'jobs' table (job_id: {job_id})...")
+                jobs_update_response = supabase.table('jobs').update(update_data).eq('id', job_id).execute()
+                print(f"[DB DEBUG] ✓ 'jobs' table update SUCCESS: {jobs_update_response}")
 
-                logger.info(f"[METRICS] Job record updated with performance metrics")
+                print(f"[DB DEBUG] Updating job completion in 'jobs_active' table (job_id: {job_id})...")
+                jobs_active_update_response = supabase.table('jobs_active').update(update_data).eq('id', job_id).execute()
+                print(f"[DB DEBUG] ✓ 'jobs_active' table update SUCCESS: {jobs_active_update_response}")
+
+                logger.info(f"[METRICS] Job records updated with performance metrics")
 
             except Exception as db_error:
+                print(f"[DB ERROR] ========================================")
+                print(f"[DB ERROR] FAILED TO UPDATE JOB COMPLETION")
+                print(f"[DB ERROR] ========================================")
+                print(f"[DB ERROR] Error type: {type(db_error).__name__}")
+                print(f"[DB ERROR] Error message: {db_error}")
+                print(f"[DB ERROR] Job ID: {job_id}")
+                print(f"[DB ERROR] Update data: {update_data}")
+                print(f"[DB ERROR] ========================================")
+                import traceback
+                traceback.print_exc()
+                print(f"[DB ERROR] ========================================")
                 logger.warning(f"Failed to update job record: {db_error}")
 
         return {
@@ -777,12 +829,15 @@ def process_file_task(
         # Update job record with error status
         if supabase:
             try:
-                supabase.table('jobs').update({
+                error_data = {
                     'status': 'failed',
                     'completed_at': datetime.now().isoformat(),
                     'input_area_sq_miles': round(actual_area, 2) if actual_area else None,
                     'error_message': str(e)[:500],  # Truncate long errors
-                }).eq('id', job_id).execute()
+                }
+                # Update both jobs table (permanent record) and jobs_active table
+                supabase.table('jobs').update(error_data).eq('id', job_id).execute()
+                supabase.table('jobs_active').update(error_data).eq('id', job_id).execute()
             except Exception as db_error:
                 print(f"Warning: Failed to update job error: {db_error}")
 
@@ -1647,17 +1702,22 @@ def fastapi_app():
             if not supabase:
                 raise HTTPException(status_code=500, detail="Database not configured")
 
-            # Update jobs where id is in the list AND user_id is NULL
+            # Update jobs in both tables where id is in the list AND user_id is NULL
             # This prevents claiming jobs that already belong to another user
             claimed_count = 0
             for job_id in valid_job_ids:
                 try:
-                    # Check if job exists and is unclaimed
-                    result = supabase.table('jobs').update({
+                    # Update jobs table (permanent record)
+                    supabase.table('jobs').update({
                         'user_id': user_id
                     }).eq('id', job_id).is_('user_id', 'null').execute()
 
-                    # Count successful updates
+                    # Update jobs_active table (if still exists)
+                    result = supabase.table('jobs_active').update({
+                        'user_id': user_id
+                    }).eq('id', job_id).is_('user_id', 'null').execute()
+
+                    # Count successful updates (from jobs_active - only count if job is still active)
                     if result.data and len(result.data) > 0:
                         claimed_count += 1
                 except Exception as e:
@@ -1775,11 +1835,14 @@ def fastapi_app():
                     # Log but continue - storage cleanup failure shouldn't block account deletion
                     print(f"Warning: Failed to delete volumes for user {user_id}: {e}")
 
-            # Delete job records from database
+            # Delete job records from both tables
             try:
+                # Delete from jobs_active first
+                supabase.table('jobs_active').delete().eq('user_id', user_id).execute()
+                # Then delete from jobs (permanent records)
                 supabase.table('jobs').delete().eq('user_id', user_id).execute()
                 deletion_stats["database_deleted"] = True
-                print(f"Deleted {len(jobs)} job records for user {user_id}")
+                print(f"Deleted {len(jobs)} job records from both tables for user {user_id}")
             except Exception as e:
                 raise HTTPException(
                     status_code=500,
@@ -1810,7 +1873,7 @@ def fastapi_app():
 
     @web_app.delete("/api/jobs/{job_id}")
     async def delete_job(job_id: str, request: Request):
-        """Delete a job and all associated storage (Supabase, Modal Volume, Vercel Blob).
+        """Delete job from jobs_active and storage (keeps jobs record for analytics).
 
         Requires user_id in JSON body. Only the job owner can delete their job.
         """
@@ -1833,14 +1896,14 @@ def fastapi_app():
             if not supabase:
                 raise HTTPException(status_code=500, detail="Database not configured")
 
-            # Verify job exists and belongs to user
-            result = supabase.table('jobs').select('*').eq('id', job_id).single().execute()
+            # Verify job exists and belongs to user (check jobs_active table)
+            result = supabase.table('jobs_active').select('*').eq('id', job_id).single().execute()
             if not result.data:
-                raise HTTPException(status_code=404, detail="Job not found")
+                raise HTTPException(status_code=404, detail="Job not found or already expired")
             if result.data.get('user_id') != user_id:
                 raise HTTPException(status_code=403, detail="Not authorized to delete this job")
 
-            deleted_items = {"database": False, "volume": False, "blobs": []}
+            deleted_items = {"jobs_active": False, "jobs": False, "volume": False, "blobs": []}
 
             # Delete from Modal Volume
             try:
@@ -1859,7 +1922,7 @@ def fastapi_app():
                 try:
                     client = BlobClient(token=token)
 
-                    # Get blob URLs from database (already fetched at line 1560)
+                    # Get blob URLs from database
                     blob_urls = [
                         url for url in [
                             result.data.get('map_blob_url'),
@@ -1875,14 +1938,18 @@ def fastapi_app():
                 except Exception as e:
                     print(f"Warning: Failed to delete blobs for job {job_id}: {e}")
 
-            # Delete from Supabase
+            # Delete from jobs_active ONLY (preserve jobs record for analytics)
             try:
-                supabase.table('jobs').delete().eq('id', job_id).execute()
-                deleted_items["database"] = True
+                supabase.table('jobs_active').delete().eq('id', job_id).execute()
+                deleted_items["jobs_active"] = True
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Failed to delete job record: {e}")
 
-            return {"success": True, "message": "Job deleted successfully", "deleted": deleted_items}
+            return {
+                "success": True,
+                "message": "Map deleted from history (analytics record preserved)",
+                "deleted": deleted_items
+            }
 
         except HTTPException:
             raise
@@ -1971,17 +2038,19 @@ def cleanup_old_results():
                     "cutoff_date": cutoff.isoformat()
                 }
 
-            # Find jobs with blobs older than 7 days
+            # Find jobs with blobs older than 7 days from jobs_active table
             cutoff_iso = cutoff_utc.isoformat()
-            expired_jobs = supabase.table('jobs').select(
+            expired_jobs = supabase.table('jobs_active').select(
                 'id, map_blob_url, pdf_url, xlsx_url'
-            ).lt('blob_uploaded_at', cutoff_iso) \
+            ).lt('expires_at', datetime.now(timezone.utc).isoformat()) \
              .not_.is_('blob_uploaded_at', 'null') \
              .execute()
 
             # Collect all blob URLs from expired jobs
             blob_urls = []
+            job_ids_to_delete = []
             for job in expired_jobs.data:
+                job_ids_to_delete.append(job['id'])
                 blob_urls.extend([
                     url for url in [
                         job.get('map_blob_url'),
@@ -1997,6 +2066,12 @@ def cleanup_old_results():
                 client = BlobClient(token=token)
                 client.delete(blob_urls)
                 print(f"Blob cleanup: deleted {blob_deleted_count} expired blobs from {len(expired_jobs.data)} jobs")
+
+            # Delete expired jobs from jobs_active table (preserves jobs record)
+            if job_ids_to_delete:
+                for job_id in job_ids_to_delete:
+                    supabase.table('jobs_active').delete().eq('id', job_id).execute()
+                print(f"Database cleanup: deleted {len(job_ids_to_delete)} expired jobs from jobs_active")
             else:
                 print("Blob cleanup: no expired blobs found")
 

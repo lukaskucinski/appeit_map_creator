@@ -25,9 +25,9 @@ export default async function DashboardPage() {
     redirect("/")
   }
 
-  // Fetch user's jobs (RLS automatically filters by user_id)
+  // Fetch user's active jobs (last 7 days, RLS automatically filters by user_id)
   const { data: jobs, error } = await supabase
-    .from("jobs")
+    .from("jobs_active")
     .select("*")
     .order("created_at", { ascending: false })
     .limit(50)
@@ -36,14 +36,14 @@ export default async function DashboardPage() {
     console.error("Error fetching jobs:", error)
   }
 
-  // Fetch user stats for maps created counter
+  // Fetch user stats for active maps counter
   const { data: userStats } = await supabase
     .from("user_stats")
-    .select("maps_completed")
+    .select("maps_completed, maps_completed_active")
     .eq("user_id", user.id)
     .single()
 
-  const mapsCreated = userStats?.maps_completed ?? 0
+  const mapsCreatedActive = userStats?.maps_completed_active ?? 0
 
   return (
     <div className="min-h-screen bg-background">
@@ -55,7 +55,7 @@ export default async function DashboardPage() {
             <div>
               <h1 className="text-3xl font-bold">Map History</h1>
               <p className="text-muted-foreground mt-1">
-                View your recent maps (last 7 days) · {mapsCreated} {mapsCreated === 1 ? 'map' : 'maps'} created
+                View your recent maps (last 7 days) · {mapsCreatedActive} active {mapsCreatedActive === 1 ? 'map' : 'maps'}
               </p>
             </div>
             <Button asChild data-new-map-button>
@@ -67,7 +67,7 @@ export default async function DashboardPage() {
           </div>
 
           {/* Job list */}
-          <JobHistoryList jobs={(jobs as Job[]) || []} userId={user.id} mapsCreated={mapsCreated} />
+          <JobHistoryList jobs={(jobs as Job[]) || []} userId={user.id} mapsCreated={mapsCreatedActive} />
         </div>
       </main>
 
