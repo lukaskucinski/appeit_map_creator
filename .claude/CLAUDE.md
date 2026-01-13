@@ -2267,6 +2267,21 @@ Identical schema to `jobs` table. Key differences:
    - Bug: Trigger failures on anonymous job operations
    - Resolution: Trigger now skips processing for anonymous jobs (user_id IS NULL)
 
+**Maintenance: Sync Active Maps Counter**
+
+If `maps_completed_active` becomes out of sync (e.g., after manual database operations or missed trigger events), run this SQL to recalculate from current state:
+
+```sql
+UPDATE user_stats
+SET maps_completed_active = (
+  SELECT COUNT(*)
+  FROM jobs_active
+  WHERE jobs_active.user_id = user_stats.user_id
+    AND jobs_active.status = 'complete'
+),
+updated_at = NOW();
+```
+
 **Profile Display:**
 Avatar and display name come directly from OAuth provider (`user.user_metadata`). No custom profile editing - users see their Google/GitHub profile automatically.
 
