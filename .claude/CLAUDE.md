@@ -2204,6 +2204,7 @@ User authentication via Supabase with OAuth and email/password options.
 - `app/dashboard/page.tsx`: Map History page (authenticated users only)
 - `app/account/page.tsx`: Account settings page (profile info, theme settings, account deletion)
 - `app/terms/page.tsx`: Terms of Service page (static, public)
+- `app/about/page.tsx`: About page with how-it-works guide and GIF placeholders (static, public). GIF files go in `public/images/about/`
 - `app/privacy/page.tsx`: Privacy Policy page (static, public)
 
 **Supabase Client Files (`lib/supabase/`):**

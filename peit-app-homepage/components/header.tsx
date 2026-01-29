@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
-import { Star, User as UserIcon } from "lucide-react"
+import { Info, Star, User as UserIcon } from "lucide-react"
 import { clearCompleteState } from "@/lib/pending-jobs"
 import { Button } from "@/components/ui/button"
 import {
@@ -98,6 +98,26 @@ export function Header() {
             </span>
           </Link>
           <div className="flex items-center gap-2 sm:gap-3">
+            {/* About Button */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  asChild
+                >
+                  <Link href="/about">
+                    <Info className="h-4 w-4" />
+                    <span className="hidden sm:inline">About</span>
+                  </Link>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                <p>Learn how PEIT Map Creator works</p>
+              </TooltipContent>
+            </Tooltip>
+
             {/* GitHub Button - Functional */}
             <Tooltip>
               <TooltipTrigger asChild>
