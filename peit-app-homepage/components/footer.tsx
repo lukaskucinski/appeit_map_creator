@@ -7,10 +7,15 @@ export function Footer() {
         <div className="flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-4 text-sm text-muted-foreground">
           <span>&copy; {new Date().getFullYear()} PEIT Map Creator</span>
           <span className="hidden sm:inline">|</span>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
+            <Link href="/about" className="hover:text-foreground hover:underline">
+              About
+            </Link>
+            <span className="text-muted-foreground">|</span>
             <Link href="/terms" className="hover:text-foreground hover:underline">
               Terms of Service
             </Link>
+            <span className="text-muted-foreground">|</span>
             <Link href="/privacy" className="hover:text-foreground hover:underline">
               Privacy Policy
             </Link>
