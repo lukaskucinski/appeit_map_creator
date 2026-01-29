@@ -44,6 +44,14 @@ def load_geometry_file(file_path: str) -> gpd.GeoDataFrame:
             logger.info("  - Detected ZIP file, extracting to read shapefile...")
             with tempfile.TemporaryDirectory() as tmpdir:
                 with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                    # Check total uncompressed size to prevent zip bombs (50MB limit)
+                    MAX_UNCOMPRESSED_SIZE = 50 * 1024 * 1024  # 50 MB
+                    total_size = sum(info.file_size for info in zip_ref.infolist())
+                    if total_size > MAX_UNCOMPRESSED_SIZE:
+                        raise ValueError(
+                            f"ZIP uncompressed size ({total_size / 1024 / 1024:.1f} MB) "
+                            f"exceeds limit ({MAX_UNCOMPRESSED_SIZE / 1024 / 1024:.0f} MB)"
+                        )
                     zip_ref.extractall(tmpdir)
                 # Find the .shp file in extracted contents
                 shp_files = list(Path(tmpdir).rglob('*.shp'))

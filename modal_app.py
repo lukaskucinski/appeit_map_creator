@@ -150,6 +150,47 @@ def get_supabase_client():
         return None
 
 
+def verify_auth_token(request) -> str:
+    """Verify Supabase JWT from Authorization header and return user_id.
+
+    Extracts the Bearer token from the Authorization header and verifies it
+    against Supabase Auth. Returns the authenticated user's ID.
+
+    Args:
+        request: FastAPI Request object
+
+    Returns:
+        str: The authenticated user's ID
+
+    Raises:
+        HTTPException: 401 if token is missing or invalid
+    """
+    from fastapi import HTTPException
+
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+
+    token = auth_header[len("Bearer "):]
+    if not token:
+        raise HTTPException(status_code=401, detail="Empty auth token")
+
+    supabase = get_supabase_client()
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Auth service not configured")
+
+    try:
+        user_response = supabase.auth.get_user(token)
+        if not user_response or not user_response.user:
+            raise HTTPException(status_code=401, detail="Invalid or expired auth token")
+        return user_response.user.id
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[AUTH] Token verification failed: {e}")
+        raise HTTPException(status_code=401, detail="Auth token verification failed")
+
+
 def prioritize_bellwether_layers(layers_config: list) -> list:
     """Reorder layers to run bellwether layers first for runtime prediction.
 
@@ -912,8 +953,8 @@ def fastapi_app():
             "http://localhost:3000",  # Local development
         ],
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
     )
 
     def check_anonymous_rate_limit(ip: str) -> bool:
@@ -925,9 +966,10 @@ def fastapi_app():
                 return False
             rate_limit_dict[key] = count + 1
             return True
-        except Exception:
-            # If Dict is unavailable, allow the request
-            return True
+        except Exception as e:
+            # Fail closed: deny requests if rate limit Dict is unavailable
+            print(f"[RATE LIMIT] Dict unavailable for anonymous check, denying request: {e}")
+            return False
 
     def get_anonymous_remaining_runs(ip: str) -> int:
         """Get remaining runs for anonymous user (IP) today."""
@@ -947,9 +989,10 @@ def fastapi_app():
                 return False
             user_rate_limit_dict[key] = count + 1
             return True
-        except Exception:
-            # If Dict is unavailable, allow the request
-            return True
+        except Exception as e:
+            # Fail closed: deny requests if rate limit Dict is unavailable
+            print(f"[RATE LIMIT] Dict unavailable for user check, denying request: {e}")
+            return False
 
     def get_user_remaining_runs(user_id: str) -> int:
         """Get remaining runs for authenticated user today."""
@@ -971,9 +1014,10 @@ def fastapi_app():
             active_jobs_dict[key] = active + 1
             print(f"[RATE LIMIT] Slot acquired for {ip}: {active + 1} active jobs")
             return True
-        except Exception:
-            # If Dict is unavailable, allow the request
-            return True
+        except Exception as e:
+            # Fail closed: deny requests if concurrent limit Dict is unavailable
+            print(f"[RATE LIMIT] Dict unavailable for concurrent check, denying request: {e}")
+            return False
 
     def release_job_slot(ip: str):
         """Release a job slot when processing completes."""
@@ -995,9 +1039,10 @@ def fastapi_app():
                 return False
             global_rate_limit_dict[key] = count + 1
             return True
-        except Exception:
-            # If Dict is unavailable, allow the request
-            return True
+        except Exception as e:
+            # Fail closed: deny requests if global rate limit Dict is unavailable
+            print(f"[RATE LIMIT] Dict unavailable for global check, denying request: {e}")
+            return False
 
     def get_global_remaining_runs() -> int:
         """Get remaining global runs for today."""
@@ -1013,22 +1058,45 @@ def fastapi_app():
         """Health check endpoint."""
         return {"status": "healthy", "service": "peit-processor"}
 
+    # Simple in-memory rate limiter for geocoding (per-IP, per-minute)
+    _geocode_requests: dict = {}
+
     @web_app.get("/api/reverse-geocode")
-    async def reverse_geocode(lat: float, lon: float):
+    async def reverse_geocode(request: Request, lat: float, lon: float):
         """Proxy reverse geocoding to Nominatim.
 
         This endpoint proxies requests to Nominatim's reverse geocoding API
         to avoid CORS issues when calling from the browser. Nominatim's public
         API doesn't include CORS headers, so browser requests fail.
 
+        Rate limited to 30 requests per minute per IP to protect Nominatim.
+
         Args:
-            lat: Latitude coordinate
-            lon: Longitude coordinate
+            lat: Latitude coordinate (-90 to 90)
+            lon: Longitude coordinate (-180 to 180)
 
         Returns:
             Nominatim response JSON or error message
         """
         import httpx
+
+        # Validate coordinate ranges
+        if not (-90 <= lat <= 90):
+            raise HTTPException(status_code=400, detail="lat must be between -90 and 90")
+        if not (-180 <= lon <= 180):
+            raise HTTPException(status_code=400, detail="lon must be between -180 and 180")
+
+        # Rate limit: 30 requests per minute per IP
+        client_ip = request.client.host if request.client else "unknown"
+        now = datetime.now()
+        minute_key = f"{client_ip}:{now.strftime('%Y-%m-%d_%H:%M')}"
+        _geocode_requests[minute_key] = _geocode_requests.get(minute_key, 0) + 1
+        if _geocode_requests[minute_key] > 30:
+            raise HTTPException(status_code=429, detail="Geocoding rate limit exceeded (30/min)")
+        # Clean old entries (keep only current minute)
+        stale_keys = [k for k in _geocode_requests if k != minute_key]
+        for k in stale_keys:
+            _geocode_requests.pop(k, None)
 
         url = "https://nominatim.openstreetmap.org/reverse"
         params = {
@@ -1483,6 +1551,12 @@ def fastapi_app():
     @web_app.get("/api/download/{job_id}")
     async def download_result(job_id: str):
         """Download the result ZIP file for a completed job."""
+        import re
+
+        # Validate job_id format (16 hex chars) to prevent path traversal
+        if not re.match(r'^[a-f0-9]{16}$', job_id):
+            raise HTTPException(status_code=400, detail="Invalid job ID format")
+
         # Reload volume to see recent writes from other containers
         results_volume.reload()
 
@@ -1667,23 +1741,21 @@ def fastapi_app():
     async def claim_jobs(request: Request):
         """Claim unclaimed jobs for a newly authenticated user.
 
-        This allows anonymous users who just signed up to associate
-        their previously created jobs with their new account.
+        Requires Bearer token in Authorization header. The user_id is
+        extracted from the verified JWT — never trusted from the request body.
 
         Body:
-            user_id: str - The authenticated user's ID
             job_ids: list[str] - Array of job IDs to claim
 
         Returns:
             claimed_count: int - Number of jobs successfully claimed
         """
         try:
-            body = await request.json()
-            user_id = body.get("user_id")
-            job_ids = body.get("job_ids", [])
+            # Verify JWT and extract user_id from token (not from body)
+            user_id = verify_auth_token(request)
 
-            if not user_id:
-                raise HTTPException(status_code=400, detail="user_id is required")
+            body = await request.json()
+            job_ids = body.get("job_ids", [])
 
             if not job_ids or not isinstance(job_ids, list):
                 raise HTTPException(status_code=400, detail="job_ids must be a non-empty array")
@@ -1739,7 +1811,10 @@ def fastapi_app():
     async def delete_account(request: Request):
         """Delete a user account and all associated data.
 
-        Requires user_id in JSON body. This endpoint:
+        Requires Bearer token in Authorization header. The user_id is
+        extracted from the verified JWT — never trusted from the request body.
+
+        This endpoint:
         1. Fetches all jobs with blob URLs (before database deletion!)
         2. Deletes all Vercel Blob files for each job
         3. Deletes all Modal Volume folders for each job
@@ -1751,11 +1826,8 @@ def fastapi_app():
         from vercel.blob import BlobClient
 
         try:
-            body = await request.json()
-            user_id = body.get("user_id")
-
-            if not user_id:
-                raise HTTPException(status_code=400, detail="user_id is required")
+            # Verify JWT and extract user_id from token (not from body)
+            user_id = verify_auth_token(request)
 
             supabase = get_supabase_client()
             if not supabase:
@@ -1875,7 +1947,8 @@ def fastapi_app():
     async def delete_job(job_id: str, request: Request):
         """Delete job from jobs_active and storage (keeps jobs record for analytics).
 
-        Requires user_id in JSON body. Only the job owner can delete their job.
+        Requires Bearer token in Authorization header. The user_id is
+        extracted from the verified JWT. Only the job owner can delete their job.
         """
         import re
         import shutil
@@ -1886,11 +1959,8 @@ def fastapi_app():
             raise HTTPException(status_code=400, detail="Invalid job ID format")
 
         try:
-            body = await request.json()
-            user_id = body.get("user_id")
-
-            if not user_id:
-                raise HTTPException(status_code=400, detail="user_id is required")
+            # Verify JWT and extract user_id from token (not from body)
+            user_id = verify_auth_token(request)
 
             supabase = get_supabase_client()
             if not supabase:

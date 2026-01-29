@@ -123,8 +123,11 @@ def generate_output(
             logger.info(f"  - Skipping {layer_name} (0 features)")
             continue
         logger.info(f"  - Saving {layer_name} features...")
-        # Sanitize filename
-        safe_name = layer_name.replace(' ', '_').replace('/', '_').lower()
+        # Sanitize filename: strip non-alphanumeric chars (except underscore/hyphen)
+        import re
+        safe_name = re.sub(r'[^a-z0-9_\-]', '_', layer_name.lower().replace(' ', '_'))
+        # Prevent path traversal by taking only the filename component
+        safe_name = Path(safe_name).name
         layer_file = data_path / f'{safe_name}.geojson'
         gdf.to_file(layer_file, driver='GeoJSON')
 

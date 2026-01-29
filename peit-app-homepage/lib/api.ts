@@ -8,8 +8,34 @@
 import type { ProcessingConfig } from "@/components/config-panel"
 import type { ProgressUpdate } from "@/components/processing-status"
 
+import { createClient } from "@/lib/supabase/client"
+
 // API URL from environment variable (set in .env.local)
 const API_URL = process.env.NEXT_PUBLIC_MODAL_API_URL || ""
+
+/**
+ * Get the current Supabase access token for authenticated API requests.
+ * Returns null if user is not authenticated.
+ */
+async function getAuthToken(): Promise<string | null> {
+  try {
+    const supabase = createClient()
+    const { data: { session } } = await supabase.auth.getSession()
+    return session?.access_token ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Build authorization headers for authenticated API requests.
+ * Returns headers with Bearer token if available, otherwise empty.
+ */
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const token = await getAuthToken()
+  if (!token) return {}
+  return { Authorization: `Bearer ${token}` }
+}
 
 /**
  * Check if we're using mock mode (no API URL configured)
@@ -340,13 +366,14 @@ export async function claimJobs(
   }
 
   try {
+    const authHeaders = await getAuthHeaders()
     const response = await fetch(`${API_URL}/api/claim-jobs`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        ...authHeaders,
       },
       body: JSON.stringify({
-        user_id: userId,
         job_ids: jobIds,
       }),
     })
@@ -446,12 +473,14 @@ export async function deleteJob(
   }
 
   try {
+    const authHeaders = await getAuthHeaders()
     const response = await fetch(`${API_URL}/api/jobs/${jobId}`, {
       method: "DELETE",
       headers: {
         "Content-Type": "application/json",
+        ...authHeaders,
       },
-      body: JSON.stringify({ user_id: userId }),
+      body: JSON.stringify({}),
     })
 
     if (!response.ok) {

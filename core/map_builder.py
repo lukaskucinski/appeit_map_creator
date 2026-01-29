@@ -1285,11 +1285,12 @@ def create_web_map(
         # Build identifier function calls
         identifier_assignments = []
         for info in point_layer_info:
-            escaped_name = info['name'].replace("'", "\\'").replace('"', '\\"')
+            # Use json.dumps to safely escape layer names for JavaScript context
+            safe_name = json.dumps(info['name'])
             if info['type'] == 'cluster':
-                identifier_assignments.append(f"            identifyCluster('{escaped_name}');")
+                identifier_assignments.append(f"            identifyCluster({safe_name});")
             else:
-                identifier_assignments.append(f"            identifyFeatureGroup('{escaped_name}');")
+                identifier_assignments.append(f"            identifyFeatureGroup({safe_name});")
 
         assignments_js = "\n".join(identifier_assignments)
 

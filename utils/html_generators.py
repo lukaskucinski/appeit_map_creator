@@ -14,6 +14,23 @@ import geopandas as gpd
 from typing import Dict, Optional
 
 
+def _escape_json_for_html_script(json_str: str) -> str:
+    """Escape a JSON string for safe embedding inside HTML <script> tags.
+
+    Prevents XSS by escaping characters that could break out of the script context:
+    - </  -> <\\/  (prevents </script> injection)
+    - <!--  -> <\\!-- (prevents HTML comment injection)
+    - U+2028/U+2029 (JS line terminators that break string literals)
+    """
+    return (
+        json_str
+        .replace('</', '<\\/')
+        .replace('<!--', '<\\!--')
+        .replace('\u2028', '\\u2028')
+        .replace('\u2029', '\\u2029')
+    )
+
+
 def generate_layer_download_sections(
     layer_results: Dict[str, gpd.GeoDataFrame],
     config: Dict,
@@ -142,16 +159,13 @@ def generate_layer_data_mapping(
     if original_geometry_gdf is not None:
         original_geojson = json.loads(original_geometry_gdf.to_json())
         original_geojson_str = json.dumps(original_geojson, separators=(',', ':'))
-        # Escape forward slashes to prevent </script> breaking out of script context
-        original_geojson_str = original_geojson_str.replace('</', '<\\/')
+        original_geojson_str = _escape_json_for_html_script(original_geojson_str)
         mappings.append(f'"Original Geometry": {original_geojson_str}')
 
     # Add input polygon (convert GeoDataFrame to GeoJSON dict)
     input_geojson = json.loads(polygon_gdf.to_json())
     input_geojson_str = json.dumps(input_geojson, separators=(',', ':'))
-    # Escape forward slashes to prevent </script> breaking out of script context
-    input_geojson_str = input_geojson_str.replace('</', '<\\/')
-    # Use double quotes to avoid conflicts with apostrophes in layer names
+    input_geojson_str = _escape_json_for_html_script(input_geojson_str)
     mappings.append(f'"Input Polygon": {input_geojson_str}')
 
     # Add each intersected layer
@@ -161,10 +175,9 @@ def generate_layer_data_mapping(
             continue
         layer_geojson = json.loads(gdf.to_json())
         layer_geojson_str = json.dumps(layer_geojson, separators=(',', ':'))
-        # Escape forward slashes to prevent </script> breaking out of script context
-        layer_geojson_str = layer_geojson_str.replace('</', '<\\/')
-        # Escape any double quotes in the layer name and use double quotes
-        escaped_name = layer_name.replace('"', '\\"')
-        mappings.append(f'"{escaped_name}": {layer_geojson_str}')
+        layer_geojson_str = _escape_json_for_html_script(layer_geojson_str)
+        # Use json.dumps for the layer name key to safely escape all special chars
+        safe_key = json.dumps(layer_name)
+        mappings.append(f'{safe_key}: {layer_geojson_str}')
 
     return ",\n        ".join(mappings)

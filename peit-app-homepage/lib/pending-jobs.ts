@@ -101,7 +101,18 @@ export function addPendingJob(jobId: string): void {
  * @returns Array of job IDs
  */
 export function getPendingJobs(): string[] {
-  return getStoredJobs().map((job) => job.jobId)
+  // Filter out jobs older than 7 days (matching map retention policy)
+  const sevenDays = 7 * 24 * 60 * 60 * 1000
+  const now = Date.now()
+  const jobs = getStoredJobs()
+  const validJobs = jobs.filter((job) => now - job.timestamp < sevenDays)
+
+  // Persist cleaned list if any were expired
+  if (validJobs.length < jobs.length) {
+    saveStoredJobs(validJobs)
+  }
+
+  return validJobs.map((job) => job.jobId)
 }
 
 /**
