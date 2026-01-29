@@ -2179,10 +2179,20 @@ The web frontend is a Next.js 16 application providing a user-friendly interface
 - Shows Sign In/Sign Up buttons or UserMenu based on auth state
 
 **`components/footer.tsx`**
-- Minimal footer with Terms of Service and Privacy Policy links
+- Minimal footer with About, Terms of Service, and Privacy Policy links
 - Copyright notice with dynamic year
 - Centered layout, muted text styling
 - Responsive (stacks vertically on mobile)
+
+**`components/image-lightbox.tsx`**
+- Reusable client component for fullscreen image gallery overlay
+- Render prop pattern: `children: (openImage: (index: number) => void) => ReactNode`
+- Keyboard navigation: ArrowLeft/ArrowRight to navigate, Escape to close
+- Prev/Next chevron buttons and X close button
+- Backdrop click to close, body scroll lock when open
+- Wrapping navigation (last→first, first→last)
+- Caption and image counter display
+- Used by `about-steps.tsx` for the About page GIF gallery
 
 ### Authentication (Supabase)
 
@@ -2204,7 +2214,8 @@ User authentication via Supabase with OAuth and email/password options.
 - `app/dashboard/page.tsx`: Map History page (authenticated users only)
 - `app/account/page.tsx`: Account settings page (profile info, theme settings, account deletion)
 - `app/terms/page.tsx`: Terms of Service page (static, public)
-- `app/about/page.tsx`: About page with how-it-works guide and GIF placeholders (static, public). GIF files go in `public/images/about/`
+- `app/about/page.tsx`: About page (server component) with how-it-works guide, key features, and open source sections. GIF files in `public/images/about/`
+- `app/about/about-steps.tsx`: Client component wrapping the 7 how-it-works steps with clickable GIF thumbnails and lightbox gallery
 - `app/privacy/page.tsx`: Privacy Policy page (static, public)
 
 **Supabase Client Files (`lib/supabase/`):**
