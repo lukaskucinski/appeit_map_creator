@@ -33,7 +33,7 @@ MAX_RUNS_PER_DAY_ANONYMOUS = 2  # Anonymous users (IP-based)
 
 # Modal Dict for authenticated user rate limiting (user_id-based)
 user_rate_limit_dict = modal.Dict.from_name("peit-user-rate-limits", create_if_missing=True)
-MAX_RUNS_PER_DAY_AUTHENTICATED = 40  # Authenticated users
+MAX_RUNS_PER_DAY_AUTHENTICATED = 10  # Authenticated users
 
 # Modal Dict for tracking active jobs per IP
 active_jobs_dict = modal.Dict.from_name("peit-active-jobs", create_if_missing=True)
