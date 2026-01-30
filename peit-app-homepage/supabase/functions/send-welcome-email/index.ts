@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Supabase Edge Function to send welcome emails via Resend
 // Triggered by database trigger on auth.users INSERT
 
