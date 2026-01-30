@@ -20,6 +20,16 @@ interface ScrollActionsProps {
 export function ScrollActions({ showNewMapButton = true }: ScrollActionsProps) {
   const [showScrollTop, setShowScrollTop] = useState(false)
   const [showNewMap, setShowNewMap] = useState(false)
+  const [lightboxOpen, setLightboxOpen] = useState(false)
+
+  // Watch for lightbox open/close via data-lightbox-open attribute on body
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setLightboxOpen(document.body.hasAttribute('data-lightbox-open'))
+    })
+    observer.observe(document.body, { attributes: true, attributeFilter: ['data-lightbox-open'] })
+    return () => observer.disconnect()
+  }, [])
 
   useEffect(() => {
     const handleScroll = () => {
@@ -46,7 +56,7 @@ export function ScrollActions({ showNewMapButton = true }: ScrollActionsProps) {
   }
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-3">
+    <div className={`fixed bottom-6 right-6 z-50 flex flex-col gap-3 transition-opacity duration-200 ${lightboxOpen ? 'opacity-0 pointer-events-none' : ''}`}>
       {/* Back to Top Button */}
       <Button
         onClick={scrollToTop}

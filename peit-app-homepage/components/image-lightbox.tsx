@@ -33,9 +33,11 @@ export function ImageLightbox({ images, children }: ImageLightboxProps) {
       if (e.key === 'ArrowRight') next()
     }
     document.body.style.overflow = 'hidden'
+    document.body.setAttribute('data-lightbox-open', '')
     window.addEventListener('keydown', onKey)
     return () => {
       document.body.style.overflow = ''
+      document.body.removeAttribute('data-lightbox-open')
       window.removeEventListener('keydown', onKey)
     }
   }, [openIndex, close, prev, next])
