@@ -22,7 +22,7 @@ function generateWelcomeEmail(userName?: string): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Welcome to ${APP_NAME}</title>
+  <title>Welcome to the ${APP_NAME}</title>
 </head>
 <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f5f5f5;">
   <table role="presentation" style="width: 100%; border-collapse: collapse;">
@@ -43,7 +43,7 @@ function generateWelcomeEmail(userName?: string): string {
           <tr>
             <td style="padding: 40px;">
               <h1 style="margin: 0 0 24px; font-size: 24px; font-weight: 600; color: #1a1a1a; line-height: 1.3;">
-                Welcome to ${APP_NAME}
+                Welcome to the ${APP_NAME}
               </h1>
 
               <p style="margin: 0 0 20px; font-size: 16px; color: #4a4a4a; line-height: 1.6;">
@@ -144,7 +144,7 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         from: `${APP_NAME} <${SENDER_EMAIL}>`,
         to: [email],
-        subject: `Welcome to ${APP_NAME}`,
+        subject: `Welcome to the ${APP_NAME}`,
         html: generateWelcomeEmail(name),
       }),
     })

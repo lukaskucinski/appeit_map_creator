@@ -48,13 +48,20 @@ export function DeleteAccount({ userEmail, userId }: DeleteAccountProps) {
         throw new Error("API not configured")
       }
 
-      // Call backend to delete account
+      // Get auth token for verified identity
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        throw new Error("Not authenticated")
+      }
+
+      // Call backend to delete account (user_id verified from JWT on server)
       const response = await fetch(`${apiUrl}/api/account`, {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ user_id: userId }),
+        body: JSON.stringify({}),
       })
 
       if (!response.ok) {

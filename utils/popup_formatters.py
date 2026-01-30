@@ -53,15 +53,26 @@ def format_popup_value(col: str, value: Any) -> str:
     is_url = 'url' in col.lower() or value_str.startswith(('http://', 'https://'))
 
     if is_url:
+        # Security: only allow safe URL protocols to prevent javascript: XSS
+        safe_protocols = ('http://', 'https://', 'mailto:', 'ftp://')
+        if not value_str.lower().startswith(safe_protocols):
+            return value_str  # Render as plain text, not a link
+
         # Truncate long URLs for display
         if len(value_str) <= 60:
             display_text = value_str
         else:
             display_text = f"{value_str[:57]}..."
 
+        # HTML-escape the URL to prevent attribute injection
+        import html
+        safe_url = html.escape(value_str, quote=True)
+        safe_display = html.escape(display_text)
+
         return (
-            f'<a href="{value_str}" target="_blank" '
-            f'style="word-break: break-all; color: #0066cc;">{display_text}</a>'
+            f'<a href="{safe_url}" target="_blank" '
+            f'rel="noopener noreferrer" '
+            f'style="word-break: break-all; color: #0066cc;">{safe_display}</a>'
         )
 
     return value_str

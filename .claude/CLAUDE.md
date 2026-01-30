@@ -3157,3 +3157,38 @@ modal deploy modal_app.py
 - **peit-user-rate-limits**: Daily rate limit counters per user_id (authenticated users)
 - **peit-active-jobs**: Active job counters per IP
 - Results auto-cleanup after 7 days via scheduled cron job
+
+## Security Hardening
+
+### JWT Authentication on Mutating Endpoints
+
+All backend endpoints that modify data (`/api/claim-jobs`, `/api/account`, `/api/jobs/{job_id}`) require a valid Supabase JWT Bearer token in the `Authorization` header. The `user_id` is extracted from the verified token server-side via `verify_auth_token()` — never trusted from the request body.
+
+**Implementation:**
+- `verify_auth_token(request)` in `modal_app.py`: Extracts Bearer token, calls `supabase.auth.get_user(token)` to verify, returns authenticated `user_id`
+- Frontend `getAuthHeaders()` in `lib/api.ts`: Gets current Supabase session token and returns `{ Authorization: "Bearer <token>" }` headers
+- All three mutating API functions (`claimJobs`, `deleteJob`, `DeleteAccount`) send auth headers automatically
+
+### Input Validation & XSS Prevention
+
+- **Path traversal prevention**: All `job_id` parameters validated with `^[a-f0-9]{16}$` regex, including `/api/download/{job_id}` endpoint
+- **URL protocol whitelist**: `utils/popup_formatters.py` only allows `http://`, `https://`, `mailto:`, `ftp://` protocols in popup links, blocking `javascript:` XSS
+- **HTML attribute escaping**: URL values in popups are HTML-escaped via `html.escape()` with `quote=True`
+- **JSON-in-HTML escaping**: `_escape_json_for_html_script()` in `utils/html_generators.py` escapes `</`, `<!--`, U+2028, U+2029 for safe `<script>` embedding
+- **JS string interpolation**: Layer names in `core/map_builder.py` use `json.dumps()` instead of manual quote escaping
+- **Filename sanitization**: `core/output_generator.py` strips all non-alphanumeric characters (except `_` and `-`) and uses `Path.name` to prevent traversal
+- **Zip bomb protection**: `geometry_input/load_input.py` checks total uncompressed size (50MB limit) before extraction
+- **Coordinate validation**: `/api/reverse-geocode` validates lat [-90, 90] and lon [-180, 180]
+
+### Rate Limiting
+
+- **Fail closed**: All rate limit Dict exception handlers deny requests instead of allowing them (prevents unlimited access during Dict outages)
+- **Geocode rate limit**: `/api/reverse-geocode` limited to 30 requests/minute/IP to protect Nominatim
+- **CORS restricted**: `allow_methods` and `allow_headers` explicitly listed instead of `["*"]`
+
+### Frontend Security
+
+- **HTTP security headers** in `next.config.mjs`: `X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy`
+- **Password minimum**: 10 characters (up from 6) in `auth-modal.tsx`
+- **localStorage TTL**: Pending job IDs in `lib/pending-jobs.ts` expire after 7 days (matching map retention)
+- **Auth headers**: `lib/api.ts` sends Bearer token for all authenticated API calls via `getAuthHeaders()`

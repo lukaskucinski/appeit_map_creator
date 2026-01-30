@@ -24,7 +24,7 @@ export default function AboutPage() {
           </Button>
 
           <div className="mb-8">
-            <h1 className="text-3xl font-bold tracking-tight mb-2">About PEIT Map Creator</h1>
+            <h1 className="text-3xl font-bold tracking-tight mb-2">About The PEIT Map Creator</h1>
             <p className="text-muted-foreground">
               Interactive environmental mapping — no ArcGIS Pro license required
             </p>
@@ -33,9 +33,9 @@ export default function AboutPage() {
           <div className="space-y-8">
             {/* What is PEIT Map Creator? */}
             <section>
-              <h2 className="text-xl font-semibold mb-3 pb-2 border-b">What is PEIT Map Creator?</h2>
+              <h2 className="text-xl font-semibold mb-3 pb-2 border-b">What is the PEIT Map Creator?</h2>
               <p className="text-muted-foreground leading-relaxed mb-3">
-                PEIT Map Creator (Permitting and Environmental Information Tool) generates interactive
+                The PEIT Map Creator (Permitting and Environmental Information Tool) generates interactive
                 web maps showing environmental features that intersect with your project area. It queries
                 130+ federal and state environmental databases hosted on ArcGIS FeatureServers and
                 produces a self-contained HTML map along with PDF and Excel reports.
@@ -85,7 +85,7 @@ export default function AboutPage() {
             <section>
               <h2 className="text-xl font-semibold mb-3 pb-2 border-b">Open Source &amp; Attribution</h2>
               <p className="text-muted-foreground leading-relaxed mb-3">
-                PEIT Map Creator is open source. View the code, report issues, or contribute on{' '}
+                The PEIT Map Creator is open source. View the code, report issues, or contribute on{' '}
                 <a
                   href="https://github.com/lukaskucinski/peit_map_creator"
                   target="_blank"

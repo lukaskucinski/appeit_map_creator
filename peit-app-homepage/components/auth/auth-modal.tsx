@@ -158,8 +158,8 @@ export function AuthModal({
       return
     }
 
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters")
+    if (password.length < 10) {
+      setError("Password must be at least 10 characters")
       setLoading(false)
       return
     }
@@ -345,7 +345,7 @@ export function AuthModal({
                     onChange={(e) => setPassword(e.target.value)}
                     required
                     disabled={loading}
-                    minLength={6}
+                    minLength={10}
                   />
                 </div>
                 <div className="space-y-1">

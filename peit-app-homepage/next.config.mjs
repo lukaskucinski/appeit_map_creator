@@ -12,6 +12,20 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  // Security headers applied to all routes
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: [
+          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(self)' },
+        ],
+      },
+    ]
+  },
   // Turbopack resolver aliases for browser compatibility
   // sql.js (used by @ngageoint/geopackage) tries to require Node.js 'fs' module
   turbopack: {
