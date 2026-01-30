@@ -2398,8 +2398,10 @@ New users receive a branded welcome email when they sign up (via any method: OAu
 - To update email template: Edit `supabase/functions/send-welcome-email/index.ts` and redeploy:
   ```bash
   cd peit-app-homepage
-  npx supabase functions deploy send-welcome-email --no-verify-jwt
+  supabase functions deploy send-welcome-email --no-verify-jwt
   ```
+  Requires Supabase CLI installed via Scoop: `scoop bucket add supabase https://github.com/supabase/scoop-bucket.git && scoop install supabase`
+  Link project first if needed: `supabase link --project-ref btqkoiwgkifhoapychrg`
 - To disable welcome emails: Drop the trigger in Supabase SQL Editor:
   ```sql
   DROP TRIGGER IF EXISTS on_auth_user_created_welcome_email ON auth.users;
