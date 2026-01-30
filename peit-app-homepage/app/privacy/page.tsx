@@ -3,6 +3,7 @@ import { ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Header } from '@/components/header'
 import { Footer } from '@/components/footer'
+import { ScrollActions } from '@/components/ui/scroll-actions'
 
 export default function PrivacyPolicyPage() {
   return (
@@ -265,6 +266,7 @@ export default function PrivacyPolicyPage() {
         </div>
       </main>
       <Footer />
+      <ScrollActions showNewMapButton={false} />
     </div>
   )
 }

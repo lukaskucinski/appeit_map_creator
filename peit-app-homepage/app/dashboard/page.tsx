@@ -9,7 +9,7 @@ import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { Header } from "@/components/header"
 import { JobHistoryList, type Job } from "@/components/dashboard/job-history-list"
-import { ScrollActions } from "@/components/dashboard/scroll-actions"
+import { ScrollActions } from "@/components/ui/scroll-actions"
 import { Button } from "@/components/ui/button"
 import { Plus } from "lucide-react"
 

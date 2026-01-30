@@ -2140,8 +2140,9 @@ The web frontend is a Next.js 16 application providing a user-friendly interface
 - Expiration countdown
 - **NEW**: Accepts `mapsCreated` prop (total completed maps count) for potential future features
 
-**`components/dashboard/scroll-actions.tsx`**
-- Floating action buttons for Map History page
+**`components/ui/scroll-actions.tsx`**
+- Reusable floating action buttons used on Dashboard, About, Terms, and Privacy pages
+- Accepts `showNewMapButton` prop (default: `true`); About/Terms/Privacy pass `false` for back-to-top only
 - **Back to Top button**: Appears when scrolled >200px (header out of view)
   - Smooth scroll behavior to top of page via `window.scrollTo({ top: 0, behavior: 'smooth' })`
   - Icon: `ArrowUp` from lucide-react with "Back to top" text
