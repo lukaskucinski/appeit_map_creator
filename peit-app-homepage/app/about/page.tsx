@@ -3,6 +3,7 @@ import { ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Header } from '@/components/header'
 import { Footer } from '@/components/footer'
+import { ScrollActions } from '@/components/ui/scroll-actions'
 import { AboutSteps } from './about-steps'
 
 export const metadata = {
@@ -107,6 +108,7 @@ export default function AboutPage() {
         </div>
       </main>
       <Footer />
+      <ScrollActions showNewMapButton={false} />
     </div>
   )
 }
