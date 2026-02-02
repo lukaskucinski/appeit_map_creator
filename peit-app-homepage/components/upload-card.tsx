@@ -6,7 +6,8 @@ import { useState, useCallback } from "react"
 import { Upload, Globe, Check, X, AlertCircle, Pencil } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { validateFile, formatFileSize, getAllowedTypesDescription } from "@/lib/validation"
+import { validateFile, validateZipContents, getFileExtension, formatFileSize, getAllowedTypesDescription } from "@/lib/validation"
+import { parseGeospatialFile, isClientParseable } from "@/lib/file-parsers"
 import { GeometryPreview } from "@/components/geometry-preview"
 
 interface UploadCardProps {
@@ -37,7 +38,7 @@ export function UploadCard({
   // Use external state if provided, otherwise use internal state
   const selectedFile = externalSelectedFile !== undefined ? externalSelectedFile : internalSelectedFile
 
-  const handleFile = useCallback((file: File) => {
+  const handleFile = useCallback(async (file: File) => {
     setValidationError(null)
 
     const result = validateFile(file)
@@ -45,6 +46,26 @@ export function UploadCard({
       setValidationError(result.error || "Invalid file")
       setInternalSelectedFile(null)
       return
+    }
+
+    // For ZIP files, validate that they contain shapefile components
+    if (getFileExtension(file.name) === '.zip') {
+      const zipResult = await validateZipContents(file)
+      if (!zipResult.valid) {
+        setValidationError(zipResult.error || "Invalid ZIP file")
+        setInternalSelectedFile(null)
+        return
+      }
+    }
+
+    // Try parsing the file to catch corrupt/empty files early
+    if (isClientParseable(file.name)) {
+      const parsed = await parseGeospatialFile(file)
+      if (!parsed || parsed.features.length === 0) {
+        setValidationError("File could not be read or contains no geometry features. It may be empty or corrupted.")
+        setInternalSelectedFile(null)
+        return
+      }
     }
 
     setInternalSelectedFile(file)
