@@ -24,6 +24,9 @@ app = modal.App("peit-processor")
 # Vercel Blob secret for uploading maps
 vercel_blob_secret = modal.Secret.from_name("vercel-blob", required_keys=["BLOB_READ_WRITE_TOKEN"])
 
+# Resend secret for admin email notifications
+resend_secret = modal.Secret.from_name("resend-api", required_keys=["RESEND_API_KEY"])
+
 # Supabase secret for job tracking (optional - jobs work without it)
 supabase_secret = modal.Secret.from_name("supabase-service", required_keys=["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"])
 
@@ -42,6 +45,10 @@ MAX_CONCURRENT_JOBS_PER_IP = 3
 # Modal Dict for global rate limit (across all users)
 global_rate_limit_dict = modal.Dict.from_name("peit-global-rate-limit", create_if_missing=True)
 MAX_GLOBAL_RUNS_PER_DAY = 100
+
+# Admin notification settings
+ADMIN_EMAIL = "lukaskucinski@gmail.com"
+NOTIFICATION_MILESTONES = [10, 50, 100]
 
 # Maximum input geometry area in square miles
 MAX_INPUT_AREA_SQ_MILES = 500
@@ -902,7 +909,7 @@ def process_file_task(
     image=peit_image,
     timeout=600,  # 10 minutes (matches process_file_task timeout)
     volumes={"/results": results_volume},
-    secrets=[supabase_secret, vercel_blob_secret],  # For account/job deletion endpoints
+    secrets=[supabase_secret, vercel_blob_secret, resend_secret],  # For account/job deletion endpoints + admin notifications
 )
 @modal.concurrent(max_inputs=10)
 @modal.asgi_app()
@@ -1030,6 +1037,40 @@ def fastapi_app():
         except Exception:
             pass
 
+    def send_milestone_notification(count: int):
+        """Send admin email when daily global runs hit a milestone. Fire-and-forget."""
+        import requests as req
+        today = datetime.now().strftime('%Y-%m-%d')
+        try:
+            resend_api_key = os.environ.get("RESEND_API_KEY", "")
+            if not resend_api_key:
+                print("[NOTIFICATION] RESEND_API_KEY not available, skipping milestone email")
+                return
+            resp = req.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {resend_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "from": f"PEIT Map Creator <noreply@peit-map-creator.com>",
+                    "to": [ADMIN_EMAIL],
+                    "subject": f"PEIT Daily Milestone: {count} runs today",
+                    "html": (
+                        f"<div style='font-family: sans-serif; max-width: 500px; padding: 20px;'>"
+                        f"<h2 style='margin: 0 0 16px; color: #1a1a1a;'>Daily Run Milestone</h2>"
+                        f"<p><strong>Milestone:</strong> {count} runs</p>"
+                        f"<p><strong>Date:</strong> {today} (UTC)</p>"
+                        f"<p><strong>Max limit:</strong> {MAX_GLOBAL_RUNS_PER_DAY} runs/day</p>"
+                        f"</div>"
+                    ),
+                },
+                timeout=10,
+            )
+            print(f"[NOTIFICATION] Milestone email sent for {count} runs: {resp.status_code}")
+        except Exception as e:
+            print(f"[NOTIFICATION] Failed to send milestone email: {e}")
+
     def check_global_rate_limit() -> bool:
         """Check if global daily limit has been exceeded. Returns True if allowed."""
         key = f"global:{datetime.now().strftime('%Y-%m-%d')}"
@@ -1037,7 +1078,13 @@ def fastapi_app():
             count = global_rate_limit_dict.get(key, 0)
             if count >= MAX_GLOBAL_RUNS_PER_DAY:
                 return False
-            global_rate_limit_dict[key] = count + 1
+            new_count = count + 1
+            global_rate_limit_dict[key] = new_count
+            if new_count in NOTIFICATION_MILESTONES:
+                try:
+                    send_milestone_notification(new_count)
+                except Exception:
+                    pass
             return True
         except Exception as e:
             # Fail closed: deny requests if global rate limit Dict is unavailable

@@ -2408,6 +2408,12 @@ New users receive a branded welcome email when they sign up (via any method: OAu
   DROP TRIGGER IF EXISTS on_auth_user_created_welcome_email ON auth.users;
   ```
 
+### Admin Notifications
+
+Email notifications to `lukaskucinski@gmail.com` for:
+1. **New user signups**: Supabase Edge Function (`supabase/functions/send-admin-notification/index.ts`) triggered by `on_auth_user_created_admin_notification` trigger on `auth.users` INSERT
+2. **Daily run milestones** (10, 50, 100): Sent from `check_global_rate_limit()` in `modal_app.py` via Resend API (Modal secret: `resend-api`). Configurable via `NOTIFICATION_MILESTONES` constant. Fire-and-forget, logged with `[NOTIFICATION]` prefix.
+
 ### Dark Mode
 
 The app supports light, dark, and system themes using `next-themes`.
