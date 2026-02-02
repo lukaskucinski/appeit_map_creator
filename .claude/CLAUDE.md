@@ -2529,6 +2529,7 @@ TypeScript client for the Modal backend:
 - **Allowed Extensions**: `.geojson`, `.json`, `.gpkg`, `.kml`, `.kmz`, `.zip`
 - **Max File Size**: 5MB
 - **ZIP Content Validation**: ZIP files are inspected client-side via JSZip to verify they contain the three required shapefile components (`.shp`, `.shx`, `.dbf`). ZIPs missing any component are rejected with a specific error listing the missing files.
+- **File Content Validation**: All parseable formats (GeoJSON, SHP/ZIP, KML, KMZ, GPKG) are parsed client-side on upload. Empty, corrupt, or featureless files are rejected before reaching the backend.
 - Provides user-friendly error messages
 
 ### Client-Side File Parsing (`lib/file-parsers.ts`)
