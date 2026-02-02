@@ -2,6 +2,8 @@
  * File validation utilities for PEIT web upload
  */
 
+import JSZip from 'jszip'
+
 // Allowed file extensions for geospatial files
 export const ALLOWED_EXTENSIONS = [
   '.geojson',
@@ -74,6 +76,48 @@ export function formatFileSize(bytes: number): string {
     return `${(bytes / 1024).toFixed(1)} KB`
   } else {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  }
+}
+
+/**
+ * Validate that a ZIP file contains shapefile components (.shp)
+ * Returns { valid: true } if ZIP contains a .shp file, or an error otherwise.
+ */
+export async function validateZipContents(file: File): Promise<ValidationResult> {
+  try {
+    const buffer = await file.arrayBuffer()
+    const zip = await JSZip.loadAsync(buffer)
+    const filenames = Object.keys(zip.files).map((name) => name.toLowerCase())
+
+    const hasShp = filenames.some((name) => name.endsWith('.shp'))
+    const hasShx = filenames.some((name) => name.endsWith('.shx'))
+    const hasDbf = filenames.some((name) => name.endsWith('.dbf'))
+
+    if (!hasShp && !hasShx && !hasDbf) {
+      return {
+        valid: false,
+        error: 'ZIP file does not contain a shapefile. Only zipped shapefiles are supported.',
+      }
+    }
+
+    const missing: string[] = []
+    if (!hasShp) missing.push('.shp')
+    if (!hasShx) missing.push('.shx')
+    if (!hasDbf) missing.push('.dbf')
+
+    if (missing.length > 0) {
+      return {
+        valid: false,
+        error: `Shapefile is incomplete — missing required component${missing.length > 1 ? 's' : ''}: ${missing.join(', ')}. A valid shapefile ZIP must contain .shp, .shx, and .dbf files.`,
+      }
+    }
+
+    return { valid: true }
+  } catch {
+    return {
+      valid: false,
+      error: 'Unable to read ZIP file. The file may be corrupted.',
+    }
   }
 }
 
