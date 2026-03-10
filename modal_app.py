@@ -958,6 +958,7 @@ def fastapi_app():
             "https://peit-map-creator.vercel.app",  # Keep temporarily for migration
             "https://peit-map-creator-*.vercel.app",  # Preview deployments
             "http://localhost:3000",  # Local development
+            "http://localhost:3001",  # Local development (alternate port)
         ],
         allow_credentials=True,
         allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
