@@ -459,7 +459,7 @@ export function ProcessingStatus({
                   {mapUrl && (
                     <Button
                       onClick={() => window.open(mapUrl, '_blank')}
-                      className="gap-2 hover:scale-[1.03] hover:shadow-md active:scale-[0.98] transition-all duration-200"
+                      className="gap-2 hover:scale-[1.03] hover:shadow-md hover:bg-primary dark:hover:bg-primary active:scale-[0.98] transition-all duration-200"
                       size="lg"
                     >
                       <ExternalLink className="h-5 w-5" />
