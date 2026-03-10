@@ -324,6 +324,7 @@ def process_file_task(
     project_id: str = "",
     buffer_distance_feet: int = 500,
     clip_buffer_miles: float = 0.2,
+    client_ip: str = "unknown",
 ) -> dict:
     """
     Process a geospatial file and generate PEIT outputs.
@@ -368,6 +369,7 @@ def process_file_task(
                 'project_id': project_id if project_id else None,
                 'status': 'processing',
                 'expires_at': (datetime.now() + timedelta(days=7)).isoformat(),
+                'client_ip': client_ip,
             }
 
             print(f"[DB DEBUG] Attempting to insert job record:")
@@ -1449,6 +1451,7 @@ def fastapi_app():
                     project_id=project_id,
                     buffer_distance_feet=buffer_distance_feet,
                     clip_buffer_miles=clip_buffer_miles,
+                    client_ip=client_ip,
                 )
 
                 # Poll for completion with progress file reads
