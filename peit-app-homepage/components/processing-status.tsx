@@ -470,7 +470,7 @@ export function ProcessingStatus({
                     onClick={handleDownloadClick}
                     variant={mapUrl ? "outline" : "default"}
                     size="lg"
-                    className="gap-2"
+                    className="gap-2 hover:bg-muted-foreground/20 dark:hover:bg-muted-foreground/25"
                     disabled={isDownloading}
                   >
                     {isDownloading ? (
@@ -498,7 +498,7 @@ export function ProcessingStatus({
                       variant="ghost"
                       size="sm"
                       onClick={copyMapUrl}
-                      className="gap-1 h-8 hover:bg-muted-foreground/10 active:bg-muted-foreground/20 transition-colors duration-200"
+                      className="gap-1 h-8 hover:bg-muted-foreground/20 dark:hover:bg-muted-foreground/25 active:bg-muted-foreground/30 transition-colors duration-200"
                     >
                       {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                       {copied ? 'Copied!' : 'Copy'}
@@ -547,7 +547,7 @@ export function ProcessingStatus({
                   onClick={onProcessAnother}
                   variant="ghost"
                   size="sm"
-                  className="gap-2 mx-auto hover:bg-muted-foreground/10 active:bg-muted-foreground/20 transition-colors duration-200"
+                  className="gap-2 mx-auto hover:bg-muted-foreground/20 dark:hover:bg-muted-foreground/25 active:bg-muted-foreground/30 transition-colors duration-200"
                   disabled={isDownloading}
                 >
                   <RotateCcw className="h-4 w-4" />
