@@ -48,7 +48,7 @@ MAX_GLOBAL_RUNS_PER_DAY = 100
 
 # Admin notification settings
 ADMIN_EMAIL = "lukaskucinski@gmail.com"
-NOTIFICATION_MILESTONES = [10, 50, 100]
+NOTIFICATION_MILESTONES = [3, 10, 50, 100]
 
 # Maximum input geometry area in square miles
 MAX_INPUT_AREA_SQ_MILES = 500
