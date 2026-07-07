@@ -940,10 +940,10 @@ def fastapi_app():
             "http://localhost:3000",  # Local development
             "http://localhost:3001",  # Local development (alternate port)
         ],
-        # Vercel preview deployments (e.g. peit-map-creator-<hash>-<scope>.vercel.app).
-        # Starlette matches allow_origins by exact string, so a glob there is a no-op;
-        # a regex is required for wildcard subdomains.
-        allow_origin_regex=r"https://peit-map-creator-[a-z0-9-]+\.vercel\.app",
+        # No wildcard preview regex: a pattern like `peit-map-creator-*.vercel.app`
+        # with allow_credentials=True would trust any attacker-registered Vercel
+        # project matching the prefix. Preview deployments (if needed) should be
+        # added to allow_origins explicitly by their exact hostname.
         allow_credentials=True,
         allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type"],
@@ -1341,8 +1341,13 @@ def fastapi_app():
         # one the request is anonymous. This prevents a client from supplying an
         # arbitrary user_id to claim the higher authenticated rate-limit tier or
         # to write jobs into someone else's history.
+        # If ANY Authorization header is supplied it must be a valid Bearer token:
+        # verify_auth_token raises 401 on missing/malformed/invalid values. Only a
+        # completely absent header falls through to the anonymous flow. This closes
+        # the downgrade where "Bearer" (no token), "bearer ...", or "Basic ..."
+        # would silently be treated as anonymous and consume the IP tier.
         auth_header = request.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
+        if auth_header:
             user_id = verify_auth_token(request)
         else:
             user_id = None

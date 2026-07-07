@@ -68,3 +68,18 @@ class TestDownloadSections:
             input_filename=XSS_SCRIPT,
         )
         assert '<script>' not in html
+
+    def test_layer_name_cannot_break_out_of_onclick_js(self):
+        # A malicious layer name with a single quote must not break out of the
+        # single-quoted JS argument in the download button onclick attribute.
+        evil_name = "x'); alert(1);//"
+        gdf = gpd.GeoDataFrame({'geometry': [Point(0, 0)]}, crs='EPSG:4326')
+        html = generate_layer_download_sections(
+            layer_results={evil_name: gdf},
+            config={'layers': [{'name': evil_name}]},
+            input_filename='input.geojson',
+        )
+        # The raw breakout sequence must not appear verbatim in the onclick sink.
+        assert "downloadLayer('x'); alert(1);//'" not in html
+        # The name is serialized as a JS string with the quote HTML-escaped.
+        assert 'alert(1)' not in html or '&#x27;' in html or '&quot;' in html
