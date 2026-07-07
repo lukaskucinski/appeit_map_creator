@@ -18,32 +18,54 @@ import modal
 from modal.exception import FunctionTimeoutError
 import os
 
-# Create Modal app
-app = modal.App("peit-processor")
+# ---------------------------------------------------------------------------
+# Environment split (dev / prod isolation)
+# ---------------------------------------------------------------------------
+# Set PEIT_ENV=dev (or any non-"prod" value) in the shell that runs
+# `modal serve` / `modal deploy` to spin up a FULLY ISOLATED stack: a separate
+# Modal app, Volume, rate-limit Dicts, and Secrets. Dev runs then never read or
+# write production data — nothing to clean up afterward.
+#
+#   Prod (default):  modal deploy modal_app.py
+#   Dev:             PEIT_ENV=dev modal serve modal_app.py     (bash)
+#                    $env:PEIT_ENV="dev"; modal serve modal_app.py   (PowerShell)
+#
+# The env var is read here at import time (client-side, when the CLI builds the
+# app graph), so it only needs to be set in your local shell.
+PEIT_ENV = os.environ.get("PEIT_ENV", "prod").strip().lower()
+IS_PROD = PEIT_ENV == "prod"
+ENV_SUFFIX = "" if IS_PROD else f"-{PEIT_ENV}"
+
+# Create Modal app (env-suffixed so a dev run can never overwrite the prod app)
+app = modal.App(f"peit-processor{ENV_SUFFIX}")
 
 # Vercel Blob secret for uploading maps
-vercel_blob_secret = modal.Secret.from_name("vercel-blob", required_keys=["BLOB_READ_WRITE_TOKEN"])
+vercel_blob_secret = modal.Secret.from_name(f"vercel-blob{ENV_SUFFIX}", required_keys=["BLOB_READ_WRITE_TOKEN"])
 
-# Resend secret for admin email notifications
-resend_secret = modal.Secret.from_name("resend-api", required_keys=["RESEND_API_KEY"])
+# Resend secret for admin email notifications (prod only; dev omits emails)
+resend_secret = modal.Secret.from_name(f"resend-api{ENV_SUFFIX}", required_keys=["RESEND_API_KEY"])
 
 # Supabase secret for job tracking (optional - jobs work without it)
-supabase_secret = modal.Secret.from_name("supabase-service", required_keys=["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"])
+supabase_secret = modal.Secret.from_name(f"supabase-service{ENV_SUFFIX}", required_keys=["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"])
+
+# Secret set for the FastAPI app. Resend is prod-only, so dev doesn't require a
+# resend-api-dev secret to exist (milestone emails simply no-op without it).
+fastapi_secrets = [supabase_secret, vercel_blob_secret] + ([resend_secret] if IS_PROD else [])
 
 # Modal Dict for rate limiting (anonymous users - IP-based)
-rate_limit_dict = modal.Dict.from_name("peit-rate-limits", create_if_missing=True)
+rate_limit_dict = modal.Dict.from_name(f"peit-rate-limits{ENV_SUFFIX}", create_if_missing=True)
 MAX_RUNS_PER_DAY_ANONYMOUS = 2  # Anonymous users (IP-based)
 
 # Modal Dict for authenticated user rate limiting (user_id-based)
-user_rate_limit_dict = modal.Dict.from_name("peit-user-rate-limits", create_if_missing=True)
+user_rate_limit_dict = modal.Dict.from_name(f"peit-user-rate-limits{ENV_SUFFIX}", create_if_missing=True)
 MAX_RUNS_PER_DAY_AUTHENTICATED = 10  # Authenticated users
 
 # Modal Dict for tracking active jobs per IP
-active_jobs_dict = modal.Dict.from_name("peit-active-jobs", create_if_missing=True)
+active_jobs_dict = modal.Dict.from_name(f"peit-active-jobs{ENV_SUFFIX}", create_if_missing=True)
 MAX_CONCURRENT_JOBS_PER_IP = 3
 
 # Modal Dict for global rate limit (across all users)
-global_rate_limit_dict = modal.Dict.from_name("peit-global-rate-limit", create_if_missing=True)
+global_rate_limit_dict = modal.Dict.from_name(f"peit-global-rate-limit{ENV_SUFFIX}", create_if_missing=True)
 MAX_GLOBAL_RUNS_PER_DAY = 100
 
 # Admin notification settings
@@ -54,7 +76,7 @@ NOTIFICATION_MILESTONES = [3, 10, 50, 100]
 MAX_INPUT_AREA_SQ_MILES = 500
 
 # Modal Volume for storing results temporarily
-results_volume = modal.Volume.from_name("peit-results", create_if_missing=True)
+results_volume = modal.Volume.from_name(f"peit-results{ENV_SUFFIX}", create_if_missing=True)
 
 # Define the container image with geospatial dependencies
 peit_image = (
@@ -890,7 +912,7 @@ def process_file_task(
     image=peit_image,
     timeout=600,  # 10 minutes (matches process_file_task timeout)
     volumes={"/results": results_volume},
-    secrets=[supabase_secret, vercel_blob_secret, resend_secret],  # For account/job deletion endpoints + admin notifications
+    secrets=fastapi_secrets,  # supabase + blob (+ resend in prod only)
 )
 @modal.concurrent(max_inputs=10)
 @modal.asgi_app()
