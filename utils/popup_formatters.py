@@ -8,6 +8,7 @@ Functions:
     format_popup_value: Format a single value for display in popup HTML
 """
 
+import html
 from typing import Any
 
 
@@ -56,7 +57,7 @@ def format_popup_value(col: str, value: Any) -> str:
         # Security: only allow safe URL protocols to prevent javascript: XSS
         safe_protocols = ('http://', 'https://', 'mailto:', 'ftp://')
         if not value_str.lower().startswith(safe_protocols):
-            return value_str  # Render as plain text, not a link
+            return html.escape(value_str)  # Render as inert escaped text, not a link
 
         # Truncate long URLs for display
         if len(value_str) <= 60:
@@ -65,7 +66,6 @@ def format_popup_value(col: str, value: Any) -> str:
             display_text = f"{value_str[:57]}..."
 
         # HTML-escape the URL to prevent attribute injection
-        import html
         safe_url = html.escape(value_str, quote=True)
         safe_display = html.escape(display_text)
 
@@ -75,4 +75,6 @@ def format_popup_value(col: str, value: Any) -> str:
             f'style="word-break: break-all; color: #0066cc;">{safe_display}</a>'
         )
 
-    return value_str
+    # Escape all plain-text values to prevent stored XSS from third-party
+    # attribute data (ArcGIS feature values) in the generated map HTML.
+    return html.escape(value_str)

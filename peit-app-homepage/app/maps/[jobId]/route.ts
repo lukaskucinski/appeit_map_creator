@@ -2,6 +2,32 @@ import { NextRequest, NextResponse } from 'next/server'
 import { list } from '@vercel/blob'
 import { createClient } from '@supabase/supabase-js'
 
+// Content-Security-Policy for the generated Folium map document.
+//
+// Primary XSS defense is server-side output escaping in the map generator;
+// this policy is defense-in-depth. Folium relies on inline scripts/styles, so
+// 'unsafe-inline'/'unsafe-eval' are required for the map to function — meaning
+// this CSP does not by itself block injected inline script. Its value is
+// constraining exfiltration (connect-src limited to the API + Nominatim) and
+// blocking plugins/base-tag/framing. The stronger structural fix is to serve
+// maps from an isolated subdomain; tracked as a follow-up.
+const MODAL_API_URL =
+  process.env.NEXT_PUBLIC_MODAL_API_URL ||
+  'https://lukaskucinski--peit-processor-fastapi-app.modal.run'
+
+const MAP_CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://code.jquery.com https://netdna.bootstrapcdn.com https://unpkg.com https://cdn.buymeacoffee.com",
+  "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://netdna.bootstrapcdn.com https://unpkg.com https://fonts.googleapis.com",
+  "font-src 'self' data: https://netdna.bootstrapcdn.com https://cdnjs.cloudflare.com https://fonts.gstatic.com",
+  "img-src 'self' data: blob: https:",
+  `connect-src 'self' https://nominatim.openstreetmap.org ${MODAL_API_URL}`,
+  "object-src 'none'",
+  "base-uri 'none'",
+  "form-action 'self'",
+  "frame-ancestors 'self'",
+].join('; ')
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ jobId: string }> }
@@ -83,6 +109,8 @@ export async function GET(
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'private, no-store',
+        'Content-Security-Policy': MAP_CSP,
+        'X-Content-Type-Options': 'nosniff',
       },
     })
   } catch (error) {

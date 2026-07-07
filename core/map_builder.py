@@ -8,6 +8,7 @@ Functions:
     create_web_map: Generate complete interactive Leaflet map
 """
 
+import html
 import json
 from datetime import datetime, timezone, timedelta
 import folium
@@ -386,6 +387,12 @@ def create_web_map(
     # Add "_buffered" suffix only when original geometry is also displayed
     buffered_layer_name = f"{base_layer_name}_buffered" if has_original_geometry else base_layer_name
 
+    # HTML-escaped versions for embedding in legend f-strings and (non-autoescaping)
+    # Jinja2 templates. base_layer_name derives from the user-supplied filename /
+    # project name, so it must be escaped to prevent stored XSS in the map.
+    safe_base_layer_name = html.escape(base_layer_name)
+    safe_buffered_layer_name = html.escape(buffered_layer_name)
+
     # Note: We don't add tooltip when interactive=False because Leaflet's tooltip
     # focus listener handling fails on non-interactive layers (getElement error)
     folium.GeoJson(
@@ -544,14 +551,14 @@ def create_web_map(
                 resource_links = generate_popup_resource_links(
                     layer_config.get('group', ''), category_resource_areas, resource_area_urls
                 )
-                popup_html = f"<div style='font-size: 10px;'><i>{layer_name}</i>{resource_links}</div>"
+                popup_html = f"<div style='font-size: 10px;'><i>{html.escape(str(layer_name))}</i>{resource_links}</div>"
                 if name_value:
-                    popup_html += f"<div style='font-size: 14px; font-weight: bold; margin: 5px 0;'>{name_value}</div>"
+                    popup_html += f"<div style='font-size: 14px; font-weight: bold; margin: 5px 0;'>{html.escape(str(name_value))}</div>"
                 popup_html += "<hr style='margin: 5px 0;'>"
 
                 for col in gdf.columns:
                     if col != 'geometry':
-                        popup_html += f"<b>{col}:</b> {format_popup_value(col, row[col])}<br>"
+                        popup_html += f"<b>{html.escape(str(col))}:</b> {format_popup_value(col, row[col])}<br>"
 
                 # Determine icon and color (check for unique value symbology)
                 icon_name = layer_config.get('icon', 'circle')
@@ -767,13 +774,13 @@ def create_web_map(
                     resource_links = generate_popup_resource_links(
                         layer_config.get('group', ''), category_resource_areas, resource_area_urls
                     )
-                    popup_html = f"<div style='font-size: 10px;'><i>{layer_name}</i>{resource_links}</div>"
+                    popup_html = f"<div style='font-size: 10px;'><i>{html.escape(str(layer_name))}</i>{resource_links}</div>"
                     if name_value:
-                        popup_html += f"<div style='font-size: 14px; font-weight: bold; margin: 5px 0;'>{name_value}</div>"
+                        popup_html += f"<div style='font-size: 14px; font-weight: bold; margin: 5px 0;'>{html.escape(str(name_value))}</div>"
                     popup_html += "<hr style='margin: 5px 0;'>"
 
                     for key, value in props.items():
-                        popup_html += f"<b>{key}:</b> {format_popup_value(key, value)}<br>"
+                        popup_html += f"<b>{html.escape(str(key))}:</b> {format_popup_value(key, value)}<br>"
 
                     # Store popup HTML in feature properties for Folium to use
                     feature['properties']['popup_html'] = popup_html
@@ -915,21 +922,21 @@ def create_web_map(
                         <line x1="0" y1="5" x2="20" y2="5"
                               style="stroke:#FF8C00; stroke-width:2; stroke-dasharray:4,2;" />
                     </svg>
-                    <span>{base_layer_name}</span>
+                    <span>{safe_base_layer_name}</span>
                 </div>
                 """
         elif original_geometry_type == 'point':
             legend_items_html += f"""
                 <div class="legend-item" data-layer-type="original-input" id="legend-original-input">
                     <i class="fa fa-star" style="color: #FF8C00; margin-right: 8px; font-size: 14px;"></i>
-                    <span>{base_layer_name}</span>
+                    <span>{safe_base_layer_name}</span>
                 </div>
                 """
         elif original_geometry_type == 'mixed':
             legend_items_html += f"""
                 <div class="legend-item" data-layer-type="original-input" id="legend-original-input">
                     <i class="fa fa-layer-group" style="color: #FF8C00; margin-right: 8px; font-size: 14px;"></i>
-                    <span>{base_layer_name}</span>
+                    <span>{safe_base_layer_name}</span>
                 </div>
                 """
 
@@ -940,7 +947,7 @@ def create_web_map(
                         <rect width="20" height="15"
                               style="fill:#FFD700; fill-opacity:0.4; stroke:#FF8C00; stroke-width:2;" />
                     </svg>
-                    <span>{buffered_layer_name}</span>
+                    <span>{safe_buffered_layer_name}</span>
                 </div>
                 """
     else:
@@ -951,7 +958,7 @@ def create_web_map(
                         <rect width="20" height="15"
                               style="fill:#FFD700; fill-opacity:0.4; stroke:#FF8C00; stroke-width:2;" />
                     </svg>
-                    <span>{base_layer_name}</span>
+                    <span>{safe_base_layer_name}</span>
                 </div>
                 """
 
@@ -1259,8 +1266,8 @@ def create_web_map(
         creation_date=f"{now_central.month}/{now_central.day}/{now_central.year}",
         has_original_geometry=has_original_geometry,
         original_geometry_type=original_geometry_type,
-        input_filename=base_layer_name,
-        buffered_layer_name=buffered_layer_name
+        input_filename=safe_base_layer_name,
+        buffered_layer_name=safe_buffered_layer_name
     )
     m.get_root().html.add_child(Element(side_panel_html))
 
@@ -1272,10 +1279,10 @@ def create_web_map(
     layer_control_template = env.get_template('layer_control_panel.html')
     layer_control_html = layer_control_template.render(
         groups=control_data['groups'],
-        input_filename=base_layer_name,  # Use base name (without _buffered suffix)
+        input_filename=safe_base_layer_name,  # Use base name (without _buffered suffix)
         has_original_geometry=has_original_geometry,
         original_geometry_type=original_geometry_type,
-        buffered_layer_name=buffered_layer_name  # Full name with _buffered suffix if applicable
+        buffered_layer_name=safe_buffered_layer_name  # Full name with _buffered suffix if applicable
     )
     m.get_root().html.add_child(Element(layer_control_html))
 
@@ -1673,8 +1680,8 @@ def create_web_map(
     # Fit bounds to polygon
     m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
 
-    # Set page title with project name
-    title = f"PEIT Map - {project_name}" if project_name else "PEIT Map"
+    # Set page title with project name (escaped to prevent </title> breakout XSS)
+    title = f"PEIT Map - {html.escape(str(project_name))}" if project_name else "PEIT Map"
     m.get_root().title = title
 
     # Add inline PNG favicons with light/dark mode support (matching homepage)

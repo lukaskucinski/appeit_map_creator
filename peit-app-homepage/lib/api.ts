@@ -169,14 +169,17 @@ export async function processFile(
   formData.append("buffer_distance_feet", config.bufferDistanceFeet.toString())
   formData.append("clip_buffer_miles", config.clipBufferMiles.toString())
 
-  // Include user_id if authenticated (for job history tracking)
-  if (userId) {
-    formData.append("user_id", userId)
-  }
+  // User identity is derived server-side from the verified JWT, never from the
+  // request body. Send the Bearer token when authenticated; the backend ignores
+  // any user_id in the form. (userId is retained in the signature for callers
+  // but is intentionally not trusted for authorization.)
+  void userId
 
   try {
+    const authHeaders = await getAuthHeaders()
     const response = await fetch(`${API_URL}/api/process`, {
       method: "POST",
+      headers: authHeaders,
       body: formData,
     })
 
