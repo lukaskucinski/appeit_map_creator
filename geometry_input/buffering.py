@@ -180,22 +180,14 @@ def calculate_buffer_area(buffered_geom: BaseGeometry) -> dict:
         Uses latitude-dependent scaling for more accurate results.
         For precise area, would need to reproject to equal-area CRS.
     """
-    import math
+    from utils.geometry_converters import calculate_area_sq_miles
 
     # Quick area calculation (approximate for lat/lon)
     area_degrees_sq = buffered_geom.area
 
-    # Get centroid latitude for scaling
-    # Longitude degrees shrink as you move away from equator
-    centroid = buffered_geom.centroid
-    lat = centroid.y
-
-    # Latitude-dependent calculation (matches geometry_converters.py)
-    # 1 degree latitude ≈ 69 miles (fairly constant)
-    # 1 degree longitude ≈ 69 * cos(lat) miles
-    lat_miles_per_deg = 69.0
-    lon_miles_per_deg = 69.0 * math.cos(math.radians(lat))
-    area_miles_sq_approx = area_degrees_sq * lat_miles_per_deg * lon_miles_per_deg
+    # Latitude-dependent scaling shared with utils.geometry_converters so both
+    # call sites stay consistent (single source of truth for the formula).
+    area_miles_sq_approx = calculate_area_sq_miles(buffered_geom)
 
     # Convert to km for backward compatibility
     area_km_sq_approx = area_miles_sq_approx / 0.386102

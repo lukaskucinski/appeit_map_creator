@@ -18,32 +18,54 @@ import modal
 from modal.exception import FunctionTimeoutError
 import os
 
-# Create Modal app
-app = modal.App("peit-processor")
+# ---------------------------------------------------------------------------
+# Environment split (dev / prod isolation)
+# ---------------------------------------------------------------------------
+# Set PEIT_ENV=dev (or any non-"prod" value) in the shell that runs
+# `modal serve` / `modal deploy` to spin up a FULLY ISOLATED stack: a separate
+# Modal app, Volume, rate-limit Dicts, and Secrets. Dev runs then never read or
+# write production data — nothing to clean up afterward.
+#
+#   Prod (default):  modal deploy modal_app.py
+#   Dev:             PEIT_ENV=dev modal serve modal_app.py     (bash)
+#                    $env:PEIT_ENV="dev"; modal serve modal_app.py   (PowerShell)
+#
+# The env var is read here at import time (client-side, when the CLI builds the
+# app graph), so it only needs to be set in your local shell.
+PEIT_ENV = os.environ.get("PEIT_ENV", "prod").strip().lower()
+IS_PROD = PEIT_ENV == "prod"
+ENV_SUFFIX = "" if IS_PROD else f"-{PEIT_ENV}"
+
+# Create Modal app (env-suffixed so a dev run can never overwrite the prod app)
+app = modal.App(f"peit-processor{ENV_SUFFIX}")
 
 # Vercel Blob secret for uploading maps
-vercel_blob_secret = modal.Secret.from_name("vercel-blob", required_keys=["BLOB_READ_WRITE_TOKEN"])
+vercel_blob_secret = modal.Secret.from_name(f"vercel-blob{ENV_SUFFIX}", required_keys=["BLOB_READ_WRITE_TOKEN"])
 
-# Resend secret for admin email notifications
-resend_secret = modal.Secret.from_name("resend-api", required_keys=["RESEND_API_KEY"])
+# Resend secret for admin email notifications (prod only; dev omits emails)
+resend_secret = modal.Secret.from_name(f"resend-api{ENV_SUFFIX}", required_keys=["RESEND_API_KEY"])
 
 # Supabase secret for job tracking (optional - jobs work without it)
-supabase_secret = modal.Secret.from_name("supabase-service", required_keys=["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"])
+supabase_secret = modal.Secret.from_name(f"supabase-service{ENV_SUFFIX}", required_keys=["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"])
+
+# Secret set for the FastAPI app. Resend is prod-only, so dev doesn't require a
+# resend-api-dev secret to exist (milestone emails simply no-op without it).
+fastapi_secrets = [supabase_secret, vercel_blob_secret] + ([resend_secret] if IS_PROD else [])
 
 # Modal Dict for rate limiting (anonymous users - IP-based)
-rate_limit_dict = modal.Dict.from_name("peit-rate-limits", create_if_missing=True)
+rate_limit_dict = modal.Dict.from_name(f"peit-rate-limits{ENV_SUFFIX}", create_if_missing=True)
 MAX_RUNS_PER_DAY_ANONYMOUS = 2  # Anonymous users (IP-based)
 
 # Modal Dict for authenticated user rate limiting (user_id-based)
-user_rate_limit_dict = modal.Dict.from_name("peit-user-rate-limits", create_if_missing=True)
+user_rate_limit_dict = modal.Dict.from_name(f"peit-user-rate-limits{ENV_SUFFIX}", create_if_missing=True)
 MAX_RUNS_PER_DAY_AUTHENTICATED = 10  # Authenticated users
 
 # Modal Dict for tracking active jobs per IP
-active_jobs_dict = modal.Dict.from_name("peit-active-jobs", create_if_missing=True)
+active_jobs_dict = modal.Dict.from_name(f"peit-active-jobs{ENV_SUFFIX}", create_if_missing=True)
 MAX_CONCURRENT_JOBS_PER_IP = 3
 
 # Modal Dict for global rate limit (across all users)
-global_rate_limit_dict = modal.Dict.from_name("peit-global-rate-limit", create_if_missing=True)
+global_rate_limit_dict = modal.Dict.from_name(f"peit-global-rate-limit{ENV_SUFFIX}", create_if_missing=True)
 MAX_GLOBAL_RUNS_PER_DAY = 100
 
 # Admin notification settings
@@ -54,7 +76,7 @@ NOTIFICATION_MILESTONES = [3, 10, 50, 100]
 MAX_INPUT_AREA_SQ_MILES = 500
 
 # Modal Volume for storing results temporarily
-results_volume = modal.Volume.from_name("peit-results", create_if_missing=True)
+results_volume = modal.Volume.from_name(f"peit-results{ENV_SUFFIX}", create_if_missing=True)
 
 # Define the container image with geospatial dependencies
 peit_image = (
@@ -155,6 +177,22 @@ def get_supabase_client():
     except Exception as e:
         print(f"Warning: Failed to create Supabase client: {e}")
         return None
+
+
+def geojson_file_to_gpkg(geojson_path, layer_name: str) -> str:
+    """Convert a GeoJSON file to a temporary GPKG file and return its path.
+
+    Shared by the single-layer and all-layers GPKG download endpoints. The
+    caller owns the returned temp file and is responsible for deleting it.
+    """
+    import tempfile
+    import geopandas as gpd
+
+    gdf = gpd.read_file(geojson_path)
+    with tempfile.NamedTemporaryFile(suffix='.gpkg', delete=False) as tmp:
+        tmp_path = tmp.name
+    gdf.to_file(tmp_path, driver='GPKG', layer=layer_name)
+    return tmp_path
 
 
 def verify_auth_token(request) -> str:
@@ -349,6 +387,11 @@ def process_file_task(
     from geometry_input.pipeline import process_input_geometry
     from utils.logger import setup_logging, get_logger
 
+    # Sanitize the client-supplied filename to its basename only. A crafted
+    # filename (e.g. "../../etc/x") must never let the write escape temp_dir,
+    # and the stem later becomes display text embedded in the map HTML.
+    filename = Path(filename).name or "input"
+
     # Create temp directories
     temp_dir = Path(tempfile.mkdtemp())
     input_file = temp_dir / filename
@@ -372,40 +415,15 @@ def process_file_task(
                 'client_ip': client_ip,
             }
 
-            print(f"[DB DEBUG] Attempting to insert job record:")
-            print(f"[DB DEBUG] - job_id: {job_id}")
-            print(f"[DB DEBUG] - user_id: {user_id}")
-            print(f"[DB DEBUG] - filename: {filename}")
-            print(f"[DB DEBUG] - project_name: {project_name}")
-            print(f"[DB DEBUG] - job_data: {job_data}")
-
-            # Insert into jobs table (permanent record)
-            print(f"[DB DEBUG] Inserting into 'jobs' table...")
-            jobs_response = supabase.table('jobs').insert(job_data).execute()
-            print(f"[DB DEBUG] ✓ 'jobs' table insert SUCCESS: {jobs_response}")
-
-            # Insert into jobs_active table (7-day window)
-            print(f"[DB DEBUG] Inserting into 'jobs_active' table...")
-            jobs_active_response = supabase.table('jobs_active').insert(job_data).execute()
-            print(f"[DB DEBUG] ✓ 'jobs_active' table insert SUCCESS: {jobs_active_response}")
-
-            print(f"[DB DEBUG] Both database inserts completed successfully!")
+            # Insert into jobs table (permanent record) and jobs_active (7-day window)
+            supabase.table('jobs').insert(job_data).execute()
+            supabase.table('jobs_active').insert(job_data).execute()
+            print(f"[DB] Inserted job record {job_id}")
 
         except Exception as db_error:
-            # Log detailed error information
-            print(f"[DB ERROR] ========================================")
-            print(f"[DB ERROR] FAILED TO INSERT JOB RECORD")
-            print(f"[DB ERROR] ========================================")
-            print(f"[DB ERROR] Error type: {type(db_error).__name__}")
-            print(f"[DB ERROR] Error message: {db_error}")
-            print(f"[DB ERROR] Job data attempted: {job_data}")
-            print(f"[DB ERROR] ========================================")
-            import traceback
-            print(f"[DB ERROR] Full traceback:")
-            traceback.print_exc()
-            print(f"[DB ERROR] ========================================")
+            print(f"[DB] Failed to insert job record {job_id}: {type(db_error).__name__}: {db_error}")
     else:
-        print(f"[DB ERROR] Supabase client is None - cannot insert job record!")
+        print(f"[DB] Supabase client unavailable - skipping job record insert for {job_id}")
 
     try:
         # Save uploaded file
@@ -837,29 +855,12 @@ def process_file_task(
                     **performance_metrics  # Merge performance metrics into update
                 }
                 # Update both jobs table (permanent record) and jobs_active table
-                print(f"[DB DEBUG] Updating job completion in 'jobs' table (job_id: {job_id})...")
-                jobs_update_response = supabase.table('jobs').update(update_data).eq('id', job_id).execute()
-                print(f"[DB DEBUG] ✓ 'jobs' table update SUCCESS: {jobs_update_response}")
-
-                print(f"[DB DEBUG] Updating job completion in 'jobs_active' table (job_id: {job_id})...")
-                jobs_active_update_response = supabase.table('jobs_active').update(update_data).eq('id', job_id).execute()
-                print(f"[DB DEBUG] ✓ 'jobs_active' table update SUCCESS: {jobs_active_update_response}")
-
-                logger.info(f"[METRICS] Job records updated with performance metrics")
+                supabase.table('jobs').update(update_data).eq('id', job_id).execute()
+                supabase.table('jobs_active').update(update_data).eq('id', job_id).execute()
+                logger.info(f"[DB] Job {job_id} marked complete with performance metrics")
 
             except Exception as db_error:
-                print(f"[DB ERROR] ========================================")
-                print(f"[DB ERROR] FAILED TO UPDATE JOB COMPLETION")
-                print(f"[DB ERROR] ========================================")
-                print(f"[DB ERROR] Error type: {type(db_error).__name__}")
-                print(f"[DB ERROR] Error message: {db_error}")
-                print(f"[DB ERROR] Job ID: {job_id}")
-                print(f"[DB ERROR] Update data: {update_data}")
-                print(f"[DB ERROR] ========================================")
-                import traceback
-                traceback.print_exc()
-                print(f"[DB ERROR] ========================================")
-                logger.warning(f"Failed to update job record: {db_error}")
+                logger.warning(f"[DB] Failed to update job completion for {job_id}: {type(db_error).__name__}: {db_error}")
 
         return {
             "success": True,
@@ -911,7 +912,7 @@ def process_file_task(
     image=peit_image,
     timeout=600,  # 10 minutes (matches process_file_task timeout)
     volumes={"/results": results_volume},
-    secrets=[supabase_secret, vercel_blob_secret, resend_secret],  # For account/job deletion endpoints + admin notifications
+    secrets=fastapi_secrets,  # supabase + blob (+ resend in prod only)
 )
 @modal.concurrent(max_inputs=10)
 @modal.asgi_app()
@@ -958,10 +959,13 @@ def fastapi_app():
             "https://peit-map-creator.com",
             "https://www.peit-map-creator.com",
             "https://peit-map-creator.vercel.app",  # Keep temporarily for migration
-            "https://peit-map-creator-*.vercel.app",  # Preview deployments
             "http://localhost:3000",  # Local development
             "http://localhost:3001",  # Local development (alternate port)
         ],
+        # No wildcard preview regex: a pattern like `peit-map-creator-*.vercel.app`
+        # with allow_credentials=True would trust any attacker-registered Vercel
+        # project matching the prefix. Preview deployments (if needed) should be
+        # added to allow_origins explicitly by their exact hostname.
         allow_credentials=True,
         allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type"],
@@ -1354,6 +1358,22 @@ def fastapi_app():
         """
         client_ip = request.client.host if request.client else "unknown"
 
+        # Derive user identity from the verified JWT, never from the form body.
+        # If a Bearer token is present it must be valid (401 otherwise); without
+        # one the request is anonymous. This prevents a client from supplying an
+        # arbitrary user_id to claim the higher authenticated rate-limit tier or
+        # to write jobs into someone else's history.
+        # If ANY Authorization header is supplied it must be a valid Bearer token:
+        # verify_auth_token raises 401 on missing/malformed/invalid values. Only a
+        # completely absent header falls through to the anonymous flow. This closes
+        # the downgrade where "Bearer" (no token), "bearer ...", or "Basic ..."
+        # would silently be treated as anonymous and consume the IP tier.
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header:
+            user_id = verify_auth_token(request)
+        else:
+            user_id = None
+
         # Global rate limit check (check FIRST, before per-IP)
         if not check_global_rate_limit():
             return JSONResponse(
@@ -1667,17 +1687,9 @@ def fastapi_app():
                 detail=f"Layer '{layer_name}' not found (looked for: {safe_name}.geojson, available: {available_names})"
             )
 
-        # Read as GeoDataFrame
+        # Convert GeoJSON -> GPKG in a temp file (shared helper)
         try:
-            gdf = gpd.read_file(geojson_path)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to read layer data: {str(e)}")
-
-        # Create GPKG in temp file
-        try:
-            with tempfile.NamedTemporaryFile(suffix='.gpkg', delete=False) as tmp:
-                gdf.to_file(tmp.name, driver='GPKG', layer=layer_name)
-                tmp_path = tmp.name
+            tmp_path = geojson_file_to_gpkg(geojson_path, layer_name)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to generate GPKG: {str(e)}")
 
@@ -1742,13 +1754,8 @@ def fastapi_app():
                         layer_name = geojson_file.stem.replace('_', ' ').title()
 
                         try:
-                            # Read GeoJSON
-                            gdf = gpd.read_file(geojson_file)
-
-                            # Write to temp GPKG
-                            with tempfile.NamedTemporaryFile(suffix='.gpkg', delete=False) as tmp_gpkg:
-                                gdf.to_file(tmp_gpkg.name, driver='GPKG', layer=layer_name)
-                                tmp_gpkg_path = tmp_gpkg.name
+                            # Convert GeoJSON -> temp GPKG (shared helper)
+                            tmp_gpkg_path = geojson_file_to_gpkg(geojson_file, layer_name)
 
                             # Add to ZIP
                             zf.write(tmp_gpkg_path, f"{geojson_file.stem}.gpkg")

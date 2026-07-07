@@ -9,6 +9,7 @@ Functions:
     generate_layer_data_mapping: Embed GeoJSON data in JavaScript
 """
 
+import html
 import json
 import geopandas as gpd
 from typing import Dict, Optional
@@ -71,11 +72,15 @@ def generate_layer_download_sections(
     """
     sections_html = ""
 
+    # Escape the user-controlled filename/project name before embedding in HTML
+    # (prevents stored XSS in the map served same-origin from /maps/{jobId}).
+    safe_input_filename = html.escape(input_filename) if input_filename else ""
+
     # Add original input geometry section (if buffer was applied)
     if original_geometry_gdf is not None:
         sections_html += f"""
         <div class="download-section">
-            <div class="download-layer-name">{input_filename} (Original Input)</div>
+            <div class="download-layer-name">{safe_input_filename} (Original Input)</div>
             <div class="download-format-buttons">
                 <button class="download-format-btn" onclick="downloadLayer('Original Geometry', 'geojson'); event.stopPropagation();">GeoJSON</button>
                 <button class="download-format-btn" onclick="downloadLayer('Original Geometry', 'shp'); event.stopPropagation();">SHP</button>
@@ -88,7 +93,7 @@ def generate_layer_download_sections(
     # Add input polygon section (buffered polygon or original if no buffering)
     sections_html += f"""
         <div class="download-section">
-            <div class="download-layer-name">{input_filename} (Input Area)</div>
+            <div class="download-layer-name">{safe_input_filename} (Input Area)</div>
             <div class="download-format-buttons">
                 <button class="download-format-btn" onclick="downloadLayer('Input Polygon', 'geojson'); event.stopPropagation();">GeoJSON</button>
                 <button class="download-format-btn" onclick="downloadLayer('Input Polygon', 'shp'); event.stopPropagation();">SHP</button>
@@ -108,14 +113,20 @@ def generate_layer_download_sections(
 
         feature_count = len(layer_results[layer_name])
 
+        safe_layer_name = html.escape(layer_name)
+        # layer_name is also passed as a JS string argument inside the double-quoted
+        # onclick attribute. json.dumps produces a valid JS string literal (escaping
+        # quotes/backslashes/control chars); html.escape then encodes the resulting
+        # double quotes so they can't break out of the HTML attribute.
+        js_layer_name = html.escape(json.dumps(layer_name))
         sections_html += f"""
         <div class="download-section">
-            <div class="download-layer-name">{layer_name} ({feature_count})</div>
+            <div class="download-layer-name">{safe_layer_name} ({feature_count})</div>
             <div class="download-format-buttons">
-                <button class="download-format-btn" onclick="downloadLayer('{layer_name}', 'geojson'); event.stopPropagation();">GeoJSON</button>
-                <button class="download-format-btn" onclick="downloadLayer('{layer_name}', 'shp'); event.stopPropagation();">SHP</button>
-                <button class="download-format-btn" onclick="downloadLayer('{layer_name}', 'kmz'); event.stopPropagation();">KMZ</button>
-                <button class="download-format-btn" onclick="downloadLayer('{layer_name}', 'gpkg'); event.stopPropagation();">GPKG</button>
+                <button class="download-format-btn" onclick="downloadLayer({js_layer_name}, 'geojson'); event.stopPropagation();">GeoJSON</button>
+                <button class="download-format-btn" onclick="downloadLayer({js_layer_name}, 'shp'); event.stopPropagation();">SHP</button>
+                <button class="download-format-btn" onclick="downloadLayer({js_layer_name}, 'kmz'); event.stopPropagation();">KMZ</button>
+                <button class="download-format-btn" onclick="downloadLayer({js_layer_name}, 'gpkg'); event.stopPropagation();">GPKG</button>
             </div>
         </div>
         """
