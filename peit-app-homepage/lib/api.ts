@@ -83,10 +83,15 @@ async function getValidatedAuthHeaders(): Promise<Record<string, string>> {
 
     if (!error && user) {
       // Session is valid; read the (possibly refreshed) access token to send.
-      const { data: { session } } = await supabase.auth.getSession()
-      return session?.access_token
-        ? { Authorization: `Bearer ${session.access_token}` }
-        : {}
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+      if (!sessionError && session?.access_token) {
+        return { Authorization: `Bearer ${session.access_token}` }
+      }
+      // getUser() already CONFIRMED a valid user, so a missing token or a
+      // getSession() error here is a transient/racy read — NOT a definitive
+      // logged-out state. Throw (retryable) so processFile surfaces a retry
+      // instead of silently downgrading a validated user to the anonymous tier.
+      throw new AuthValidationError()
     }
 
     // getUser() reported an error. Treat only a retryable/network failure that
