@@ -30,11 +30,40 @@ async function getAuthToken(): Promise<string | null> {
 /**
  * Build authorization headers for authenticated API requests.
  * Returns headers with Bearer token if available, otherwise empty.
+ *
+ * Used by strictly-authenticated endpoints (claim-jobs, delete-job) where
+ * sending the stored token unconditionally is fine — a stale token simply
+ * 401s, which is the correct outcome for those auth-required calls.
  */
 async function getAuthHeaders(): Promise<Record<string, string>> {
   const token = await getAuthToken()
   if (!token) return {}
   return { Authorization: `Bearer ${token}` }
+}
+
+/**
+ * Build authorization headers for anonymous-capable endpoints (e.g. /api/process).
+ *
+ * `getSession()` reads the stored session WITHOUT validating it against the
+ * Supabase server, so a stale/expired session would attach a Bearer token that
+ * the backend rejects with a hard 401 — blocking the intended fall-through to
+ * the anonymous rate-limit path. `getUser()` validates (and refreshes) the
+ * session server-side, so we only attach the token when a valid user is
+ * confirmed; otherwise we omit it and let the request proceed anonymously.
+ */
+async function getValidatedAuthHeaders(): Promise<Record<string, string>> {
+  try {
+    const supabase = createClient()
+    // Validates the session against the Supabase server, refreshing if possible.
+    const { data: { user }, error } = await supabase.auth.getUser()
+    if (error || !user) return {}
+    // Session is valid; read the (possibly refreshed) access token to send.
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.access_token) return {}
+    return { Authorization: `Bearer ${session.access_token}` }
+  } catch {
+    return {}
+  }
 }
 
 /**
@@ -176,7 +205,9 @@ export async function processFile(
   void userId
 
   try {
-    const authHeaders = await getAuthHeaders()
+    // Validate the session before attaching a token so a stale/expired session
+    // falls through to the anonymous path instead of hard-failing with a 401.
+    const authHeaders = await getValidatedAuthHeaders()
     const response = await fetch(`${API_URL}/api/process`, {
       method: "POST",
       headers: authHeaders,
