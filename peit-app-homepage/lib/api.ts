@@ -8,7 +8,23 @@
 import type { ProcessingConfig } from "@/components/config-panel"
 import type { ProgressUpdate } from "@/components/processing-status"
 
+import { isAuthRetryableFetchError } from "@supabase/supabase-js"
+
 import { createClient } from "@/lib/supabase/client"
+
+/**
+ * Thrown when we cannot verify the session against the Supabase server due to a
+ * transient/network failure WHILE a local session token still exists. In that
+ * case the user believes they are logged in, so we must NOT silently downgrade
+ * the request to the anonymous rate-limit tier. Surfacing this error lets the
+ * existing processFile error path prompt the user to retry.
+ */
+class AuthValidationError extends Error {
+  constructor() {
+    super("Couldn't verify your session. Please check your connection and try again.")
+    this.name = "AuthValidationError"
+  }
+}
 
 // API URL from environment variable (set in .env.local)
 const API_URL = process.env.NEXT_PUBLIC_MODAL_API_URL || ""
@@ -50,18 +66,45 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
  * the anonymous rate-limit path. `getUser()` validates (and refreshes) the
  * session server-side, so we only attach the token when a valid user is
  * confirmed; otherwise we omit it and let the request proceed anonymously.
+ *
+ * We must, however, distinguish a genuinely-invalid session from a transient
+ * failure. A stale/expired/absent session (definitive auth rejection, or no
+ * local session at all) correctly falls through to the anonymous path. But a
+ * transient network/offline blip while a local session token still exists must
+ * NOT silently downgrade a logged-in user to the 4/day anonymous IP tier (and
+ * strand their job with `user_id = None`). In that case we throw
+ * `AuthValidationError` so processFile surfaces a retry-able error instead.
  */
 async function getValidatedAuthHeaders(): Promise<Record<string, string>> {
+  const supabase = createClient()
   try {
-    const supabase = createClient()
     // Validates the session against the Supabase server, refreshing if possible.
     const { data: { user }, error } = await supabase.auth.getUser()
-    if (error || !user) return {}
-    // Session is valid; read the (possibly refreshed) access token to send.
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session?.access_token) return {}
-    return { Authorization: `Bearer ${session.access_token}` }
-  } catch {
+
+    if (!error && user) {
+      // Session is valid; read the (possibly refreshed) access token to send.
+      const { data: { session } } = await supabase.auth.getSession()
+      return session?.access_token
+        ? { Authorization: `Bearer ${session.access_token}` }
+        : {}
+    }
+
+    // getUser() reported an error. Treat only a retryable/network failure that
+    // occurs WHILE a local session token still exists as transient (throw). A
+    // definitive auth error (invalid/expired/absent session) — or the absence of
+    // any local session — falls through to the anonymous path.
+    if (error && isAuthRetryableFetchError(error) && (await getAuthToken())) {
+      throw new AuthValidationError()
+    }
+    return {}
+  } catch (err) {
+    if (err instanceof AuthValidationError) throw err
+    // getUser() threw outright (e.g. an offline fetch TypeError). Only block the
+    // anonymous downgrade — by throwing — when a local session token exists, so
+    // a genuinely logged-out user still proceeds anonymously.
+    if (await getAuthToken()) {
+      throw new AuthValidationError()
+    }
     return {}
   }
 }
@@ -326,6 +369,15 @@ export async function processFile(
       error: "Processing ended without completion status",
     }
   } catch (error) {
+    // A transient session-verification failure (logged-in user, network blip) is
+    // surfaced with its own clear message via the existing error-state path,
+    // rather than being silently downgraded to an anonymous upload.
+    if (error instanceof AuthValidationError) {
+      return {
+        success: false,
+        error: error.message,
+      }
+    }
     const message = error instanceof Error ? error.message : "Unknown error occurred"
     return {
       success: false,
