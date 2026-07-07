@@ -11,10 +11,18 @@ import { createClient } from '@supabase/supabase-js'
 // constraining exfiltration (connect-src limited to the API + Nominatim) and
 // blocking plugins/base-tag/framing. The stronger structural fix is to serve
 // maps from an isolated subdomain; tracked as a follow-up.
-const MODAL_API_URL =
+// Trim the env value: a stray trailing newline (common when a value is pasted
+// into the Vercel dashboard) would otherwise land inside the CSP string and make
+// the header value invalid, causing new NextResponse(...) to throw.
+const MODAL_API_URL = (
   process.env.NEXT_PUBLIC_MODAL_API_URL ||
   'https://lukaskucinski--peit-processor-fastapi-app.modal.run'
+).trim()
 
+// Collapse ALL whitespace runs to single spaces as a durable guard: HTTP header
+// values may not contain newlines/tabs, and CSP tokens are space-delimited, so
+// this is semantically identical while making a malformed env value (or any
+// future stray whitespace) incapable of producing an invalid header.
 const MAP_CSP = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://code.jquery.com https://netdna.bootstrapcdn.com https://unpkg.com https://cdn.buymeacoffee.com",
@@ -26,7 +34,7 @@ const MAP_CSP = [
   "base-uri 'none'",
   "form-action 'self'",
   "frame-ancestors 'self'",
-].join('; ')
+].join('; ').replace(/\s+/g, ' ').trim()
 
 export async function GET(
   request: NextRequest,
