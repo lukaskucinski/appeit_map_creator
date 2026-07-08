@@ -27,7 +27,12 @@ const MAP_CSP = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://code.jquery.com https://netdna.bootstrapcdn.com https://unpkg.com https://cdn.buymeacoffee.com",
   "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://netdna.bootstrapcdn.com https://unpkg.com https://fonts.googleapis.com",
-  "font-src 'self' data: https://netdna.bootstrapcdn.com https://cdnjs.cloudflare.com https://fonts.gstatic.com",
+  // Allow webfonts from any HTTPS origin + data URIs. The Folium/Leaflet stack
+  // pulls fonts from several CDNs (e.g. Font Awesome's woff2 from cdn.jsdelivr.net,
+  // Bootstrap glyphicons from netdna.bootstrapcdn.com); a host allowlist here is
+  // brittle and previously blocked the marker/download glyphs (rendered as tofu
+  // boxes). Fonts are low-risk; exfiltration is constrained by connect-src.
+  "font-src 'self' data: https:",
   "img-src 'self' data: blob: https:",
   `connect-src 'self' https://nominatim.openstreetmap.org ${MODAL_API_URL}`,
   "object-src 'none'",
