@@ -1300,85 +1300,27 @@ Check `outputs/peit_map_TIMESTAMP/metadata.json` for new fields:
 8. **Layer control search not working**: Verify JavaScript is enabled, check for console errors
 9. **Base maps showing overlay layers**: Check that CSS is hiding `.leaflet-control-layers-overlays`
 
-### Layer Flickering Issue (December 2024) - UNRESOLVED
+### Layer Flickering / First-Load Misrender Issue (December 2024) - RESOLVED (July 2026)
 
-**Issue:** Some maps (~50%) exhibit layer flickering on hover and side panel disappearing on first load. Manual zoom in/out consistently fixes it. Page refresh recreates the issue.
+**Issue:** Some maps (~50%) exhibited misrendered geometries on first load (vectors misplaced/mis-scaled relative to tiles), layer flickering on hover, and side panel paint weirdness. Manual zoom in/out consistently fixed it. Page refresh recreated the issue.
 
-**Observed Correlation:**
-The issue correlates with the ratio of clip buffer distance to input buffer distance:
-- 500ft buffer + 1mi clip = issue occurs (ratio ~10.5x)
-- 500ft buffer + 0.1mi clip = no issue (ratio ~1x)
-- 2mi buffer + 1mi clip = no issue (ratio ~0.5x)
+**Root Cause (found July 2026, verified live):**
+Folium emits `fitBounds()` as the LAST statement of the generated script, after all layer-construction JS (several MB). The map is created at `zoom_start: 10` and is already loaded/rendered by the time `fitBounds` executes, so Leaflet performs an **animated** zoom to the fitted zoom. Leaflet's animated zoom completes via `requestAnimationFrame` + a CSS `transitionend` event on a proxy element; on heavy pages (130+ layers, clusters, tile loads all contending around first paint) that chain can stall, stranding the map mid-animation:
+- `map._animatingZoom` stuck `true`
+- `leaflet-zoom-anim` class stuck on the map pane (keeps `transition: transform` live on all `.leaflet-zoom-animated` elements → hover/paint flicker)
+- overlay SVG frozen with a compensation transform (e.g., `scale(16)` for zoom 10→14)
+- vector paths still projected for the pre-fitBounds view, while tiles load correctly for the new zoom (tile machinery updates independently)
 
-**Mitigation Applied:**
-Reduced default clip buffer from 1.0mi to 0.2mi and maximum from 5.0mi to 0.5mi to constrain the ratio and reduce issue occurrence. This is a workaround, not a root cause fix.
+Manual zoom starts a fresh animation on a now-idle page; its completion handler re-projects all paths and clears the stuck state — which is why zooming always "fixed" it.
 
-**Ruled Out:**
-- Hover `highlight_function` is NOT the cause (diagnostic test: disabling had no effect)
+**Why the clip-ratio correlation existed:** Leaflet only animates a zoom when the delta ≤ `zoomAnimationThreshold` (4). Buffer/clip sizes determine the fitted bounds → fitted zoom. Configs producing fitted zoom within 4 levels of `default_zoom: 10` animated (bug possible); tighter bounds (0.1mi clip → zoom 15+) jumped instantly (no bug). The clip-buffer reduction from 1.0mi to 0.2mi was compensating for this and can be revisited on its own merits.
 
-#### Attempted Fixes (All Failed)
+**Fix (core/map_builder.py):**
+1. `NonAnimatedFitBounds` MacroElement emits `fitBounds(bounds, {animate: false})` instead of folium's `m.fit_bounds()` (folium doesn't expose the animate option). Non-animated fitBounds runs `_resetView` synchronously — no rAF, no CSS transition, no race; all layers re-project immediately.
+2. Removed `forceLayerRedraw()` (the old 800ms/1500ms synthetic `viewreset` + `invalidateSize` workaround). It ran relative to its own script tag — long before the giant map script finished on large files — and a synthetic `viewreset` fired mid-animation could corrupt projections further.
+3. Added a watchdog (500ms interval in the layer management script): if `map._animatingZoom` is stuck `true` for >2s (e.g., a geocoder-result zoom starved on a busy page), it calls `map._onZoomTransitionEnd()` to force completion and re-projection.
 
-1. **CSS Isolation for Side Panels** (`templates/side_panel.html`, `templates/layer_control_panel.html`):
-   - Added `will-change: transform`, `backface-visibility: hidden`, `contain: layout style` for GPU compositing isolation
-   - Added explicit `position: relative; z-index: 1` to panel content areas
-   - **Result:** Panel shows white instead of basemap bleed-through, but core flickering persists
-
-2. **forceLayerRedraw() with viewreset + SVG toggle + invalidateSize**:
-   - Fire `viewreset` event, toggle SVG display property, call `invalidateSize()`
-   - Called at 800ms and 1500ms after page load
-   - **Result:** No effect
-
-3. **Simulated User Zoom with Event Cascade**:
-   - Fire `movestart` → micro zoom (0.001 level) → restore → fire `moveend`
-   - Attempted to replicate the event sequence of manual zoom
-   - **Result:** No effect
-
-4. **Synthetic Window Resize Event**:
-   - Dispatch `window.dispatchEvent(new Event('resize'))` + `invalidateSize()`
-   - Same code path as manual window resize
-   - **Result:** No effect
-
-5. **Remove Clip Boundary Constraint from Bounds**:
-   - Modified `calculate_optimal_bounds()` to always return full union bounds
-   - Hypothesis: SVG renderer initialized with incorrect dimensions when bounds constrained
-   - **Result:** No effect (issue persists even with full bounds)
-
-6. **Disable Hover highlight_function**:
-   - Commented out highlight_function entirely
-   - **Result:** No effect (ruled out hover as cause)
-
-#### Hypotheses and Future Fix Ideas
-
-1. **Leaflet SVG Renderer Race Condition**:
-   - SVG may not complete initial render before first paint
-   - Manual zoom triggers internal redraw mechanisms
-   - **To try:** Force SVG redraw via direct DOM manipulation after all layers loaded
-
-2. **Folium Layer Wrapper Interference**:
-   - Folium wraps layers in additional containers that may interfere with Leaflet's layer management
-   - **To try:** Inspect generated HTML for wrapper layer differences between working/broken maps
-
-3. **Canvas Renderer Instead of SVG**:
-   - Leaflet supports Canvas renderer which may handle complex scenes better
-   - **To try:** `L.map('map', { preferCanvas: true })`
-   - **Caveat:** Requires Folium configuration changes, may affect layer styling
-
-4. **Lazy Layer Loading**:
-   - Add layers progressively after initial map render
-   - **To try:** Delay adding complex polygon layers until after basemap tiles load
-
-5. **Browser-Specific SVG Bugs**:
-   - Issue reported on Chrome and Edge (both Chromium-based)
-   - **To try:** Test on Firefox/Safari to narrow down if browser-specific
-
-6. **Compare Working vs Broken Maps**:
-   - Do detailed HTML diff between maps that work and maps that break
-   - Look for differences in layer order, feature counts, CSS classes applied
-
-7. **Leaflet GitHub Issues to Monitor**:
-   - [#5960](https://github.com/Leaflet/Leaflet/issues/5960): SVG renderer loses width/height attributes
-   - [#8361](https://github.com/Leaflet/Leaflet/issues/8361): Controls disappear on hover with many features
-   - [#5207](https://github.com/Leaflet/Leaflet/issues/5207): Layers don't display until window resize
+**Verification:** A/B test on a 10.5MB production map served locally — unmodified HTML reproduced the stuck state (`_animatingZoom: true`, `leaflet-zoom-anim` stuck, SVG `scale(16)`, input polygon drawn at (946,461) vs expected (728,231)); the identical HTML with only `{"animate": false}` added to fitBounds rendered pixel-correct on first load, every load.
 
 ## Logging System
 

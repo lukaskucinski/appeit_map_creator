@@ -16,7 +16,8 @@ import geopandas as gpd
 from folium import plugins
 from folium.plugins import Geocoder
 from folium import Element
-from jinja2 import Environment, FileSystemLoader
+from branca.element import MacroElement
+from jinja2 import Environment, FileSystemLoader, Template
 from pathlib import Path
 from typing import Dict, List, Optional
 from shapely.ops import unary_union
@@ -40,6 +41,40 @@ TEMPLATES_DIR = Path(__file__).parent.parent / 'templates'
 # This eliminates the L.Mixin.Events deprecation warning by injecting
 # a patched version that uses L.Evented.prototype || L.Mixin.Events
 plugins.StripePattern.default_js = []  # Disable external CDN loading
+
+
+class NonAnimatedFitBounds(MacroElement):
+    """
+    fitBounds with animation disabled ({animate: false}).
+
+    Folium emits fitBounds as the last statement of the generated script, seconds
+    after the map is created at zoom_start on large maps. By then the map is
+    already rendered, so Leaflet performs an ANIMATED zoom whose completion
+    depends on requestAnimationFrame + a CSS transitionend event. On heavy pages
+    that chain can stall, stranding the map mid-animation (_animatingZoom stuck
+    true, leaflet-zoom-anim class stuck on the map pane, vector paths projected
+    for the wrong zoom) — the long-standing "geometries misrender until manual
+    zoom" bug. animate:false makes fitBounds call _resetView synchronously:
+    no animation, no race, and every layer re-projects immediately.
+
+    Folium's own fit_bounds() does not expose the animate option, hence this class.
+    """
+
+    _template = Template(
+        """
+        {% macro script(this, kwargs) %}
+            {{ this._parent.get_name() }}.fitBounds(
+                {{ this.bounds }},
+                {"animate": false}
+            );
+        {% endmacro %}
+        """
+    )
+
+    def __init__(self, bounds):
+        super().__init__()
+        self._name = 'NonAnimatedFitBounds'
+        self.bounds = json.dumps(bounds)
 
 
 def generate_popup_resource_links(
@@ -1590,37 +1625,33 @@ def create_web_map(
         }}
     }}
 
-    // Force SVG layer redraw to fix rendering issues on initial page load
-    // This addresses the flickering/disappearing layer issue that manual zoom fixes
-    function forceLayerRedraw() {{
-        if (!window.mapObject) {{
-            console.log('forceLayerRedraw: mapObject not ready');
-            return;
-        }}
-
-        try {{
-            console.log('forceLayerRedraw: Forcing SVG layer redraw...');
-
-            // Method 1: Fire viewreset event to trigger internal Leaflet SVG redraw
-            window.mapObject.fire('viewreset');
-
-            // Method 2: Force SVG DOM repaint by toggling display
-            var svg = document.querySelector('.leaflet-overlay-pane svg');
-            if (svg) {{
-                svg.style.display = 'none';
-                void svg.offsetHeight; // Trigger reflow
-                svg.style.display = '';
-                console.log('forceLayerRedraw: SVG repaint triggered');
+    // Watchdog for stranded zoom animations. The initial fitBounds is emitted
+    // with animate:false so it cannot strand, but any later animated zoom
+    // (geocoder result, user zoom on a still-busy page) completes via
+    // requestAnimationFrame + CSS transitionend, which can be starved on heavy
+    // pages. If a zoom animation is stuck for >2s, force-complete it so vector
+    // layers re-project (otherwise geometries render misplaced until the next
+    // successful zoom).
+    var zoomStuckSince = null;
+    setInterval(function() {{
+        var map = window.mapObject;
+        if (!map) return;
+        if (map._animatingZoom) {{
+            if (zoomStuckSince === null) {{
+                zoomStuckSince = Date.now();
+            }} else if (Date.now() - zoomStuckSince > 2000 && typeof map._onZoomTransitionEnd === 'function') {{
+                console.warn('Zoom animation stuck for >2s - forcing completion');
+                try {{
+                    map._onZoomTransitionEnd();
+                }} catch (error) {{
+                    console.error('Error forcing zoom completion:', error);
+                }}
+                zoomStuckSince = null;
             }}
-
-            // Method 3: Invalidate size to force internal recalculation
-            window.mapObject.invalidateSize({{animate: false, pan: false}});
-
-            console.log('forceLayerRedraw: Complete');
-        }} catch (error) {{
-            console.error('forceLayerRedraw error:', error);
+        }} else {{
+            zoomStuckSince = null;
         }}
-    }}
+    }}, 500);
 
     // Initialize when DOM is ready using double requestAnimationFrame for proper timing
     // This ensures browser has completed initial paint before we run layer initialization
@@ -1630,10 +1661,6 @@ def create_web_map(
             requestAnimationFrame(function() {{
                 // Identifier script runs at 300ms, so we wait 400ms to ensure it completes
                 setTimeout(initializeLayerControl, 400);
-                // Force redraw at 800ms (after layer control init)
-                setTimeout(forceLayerRedraw, 800);
-                // Safety retry at 1500ms in case first attempt was too early
-                setTimeout(forceLayerRedraw, 1500);
             }});
         }});
     }}
@@ -1677,8 +1704,8 @@ def create_web_map(
 
     m.get_root().html.add_child(Element(layer_management_script))
 
-    # Fit bounds to polygon
-    m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
+    # Fit bounds to polygon (non-animated — see NonAnimatedFitBounds docstring)
+    m.add_child(NonAnimatedFitBounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]]))
 
     # Set page title with project name (escaped to prevent </title> breakout XSS)
     title = f"PEIT Map - {html.escape(str(project_name))}" if project_name else "PEIT Map"
